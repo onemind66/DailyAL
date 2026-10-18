@@ -141,7 +141,6 @@ class _ScoreItemDistributionWidgetState
     return ExpandedCard(
       title: widget.title,
       height: length >= 3 ? (length < 14 ? 360 : 420.0) : 180,
-      width: 325.0,
       useCard: false,
       child: _uniqueItemNameSet.length >= 3
           ? _radarChart()

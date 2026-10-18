@@ -182,19 +182,24 @@ class _UserProfilePageState extends State<UserProfilePage> {
             parent: (child) => _otherUserPage(child, userProf),
             child: Stack(
               children: [
-                NestedScrollView(
-                  controller: _controller,
-                  headerSliverBuilder: (_, __) {
-                    final list = [
-                      if (widget.isSelf)
-                        _buildAppBar()
-                      else
-                        SliverWrapper(_headerWidget()),
-                    ];
+                SafeArea(
+                  top: true,
+                  bottom: false,
+                  child: NestedScrollView(
+                    controller: _controller,
+                    headerSliverBuilder: (_, __) {
+                      final list = [
+                        if (widget.isSelf)
+                          _buildAppBar()
+                        else
+                          SliverWrapper(_headerWidget()),
+                      ];
 
-                    return list;
-                  },
-                  body: username == null ? loadingBelowText() : _body(username),
+                      return list;
+                    },
+                    body:
+                        username == null ? loadingBelowText() : _body(username),
+                  ),
                 ),
                 if (userProf != null && !widget.isSelf)
                   StreamBuilder<bool>(
