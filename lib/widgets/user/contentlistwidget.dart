@@ -143,12 +143,10 @@ class ContentListWidget extends StatelessWidget {
   }
 
   List<ContentAllWidget> get _buildContentList {
+    // Do not use length % 40 here: a result list of 41 items would render
+    // only one item, 80 items would render none, etc. The "show more" gate
+    // is handled separately by showMoreNoAuth().
     return contentList
-        .getRange(
-            0,
-            !logicNoMore()
-                ? (contentList?.length ?? 0) % 40
-                : (contentList?.length ?? 0))
         .toList()
         .asMap()
         .entries

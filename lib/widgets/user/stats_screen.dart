@@ -75,9 +75,23 @@ class _UserStatsScreenState extends State<UserStatsScreen> {
     if (user.status == AuthStatus.AUTHENTICATED) _setUserInsights();
   }
 
+  String get _insightsUsername {
+    final username = widget.username.trim();
+    // The self-profile route may not have a username string attached. MAL's
+    // authenticated endpoint is /users/@me, never /users//.
+    return username.isEmpty && widget.isSelf ? '@me' : username;
+  }
+
   void _setJikanData() async {
+    // Jikan needs a public username and does not support the @me alias.
+    final username = widget.username.trim();
+    if (username.isEmpty && widget.isSelf) return;
+    if (username.isEmpty) {
+      logDal('[UserStats] skipped Jikan lookup because username is empty');
+      return;
+    }
     jikanUser = ((await JikanHelper.getUserInfo(
-            username: widget.username, fromCache: false))
+            username: username, fromCache: false))
         .data);
     if (mounted) setState(() {});
   }
@@ -92,9 +106,9 @@ class _UserStatsScreenState extends State<UserStatsScreen> {
     UserInsights? insights;
     try {
       final allUserList =
-          await MalUser.getAllUserList(widget.username, requestedCategory);
+          await MalUser.getAllUserList(_insightsUsername, requestedCategory);
       logDal(
-          '[UserInsights] user=${widget.username} category=$requestedCategory entries=${allUserList.data?.length ?? 0}');
+          '[UserInsights] user=$_insightsUsername category=$requestedCategory entries=${allUserList.data?.length ?? 0}');
       insights = UserInsights(allUserList.data ?? [], requestedCategory);
     } catch (e) {
       logDal(e);

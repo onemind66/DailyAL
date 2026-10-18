@@ -254,8 +254,18 @@ class MalUser {
     bool fromCache = true,
     String? fields,
   }) async {
+    // Treat a missing self-profile username as MAL's authenticated alias.
+    // An empty username constructs /users//animelist and returns no entries.
+    final effectiveUsername = username.trim().isEmpty &&
+            user.status == AuthStatus.AUTHENTICATED
+        ? '@me'
+        : username.trim();
+    if (effectiveUsername.isEmpty) {
+      logDal('[UserList] abort: username is empty and user is not authenticated');
+      return SearchResult(data: <BaseNode>[]);
+    }
     final result = await _fetchAllUserList(
-      username,
+      effectiveUsername,
       category,
       status: status,
       sortType: sortType,
@@ -266,7 +276,7 @@ class MalUser {
     // makes every profile graph show "No Enough Data". Retry once from network.
     if (fromCache && nullOrEmpty(result.data)) {
       return _fetchAllUserList(
-        username,
+        effectiveUsername,
         category,
         status: status,
         sortType: sortType,
