@@ -1401,10 +1401,12 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
       contentList: _results,
       displayType: DisplayType.list_vert,
       showIndex: false,
-      showEdit: false,
+      // Keep search-result rows consistent with #all: show the user's
+      // list status, score/progress controls, and edit/list actions.
+      showEdit: true,
       updateCacheOnEdit: true,
       showBackgroundImage: false,
-      showStatus: false,
+      showStatus: true,
       padding: EdgeInsets.only(top: 0),
       onContentUpdate: () {},
       aspectRatio: 2.35,
