@@ -407,9 +407,13 @@ void showCustomSheet({
     context: context,
     enableDrag: enableDrag,
     isScrollControlled: isScrollControlled,
+    useSafeArea: true,
     backgroundColor: color,
     constraints: constraints,
-    builder: (context) => Material(color: color, child: child),
+    builder: (context) => SafeArea(
+      top: false,
+      child: Material(color: color, child: child),
+    ),
   );
 }
 
@@ -1082,7 +1086,9 @@ Future<dynamic> showContentEditSheet(
       builder: (context) => Scaffold(
             backgroundColor: Colors.transparent,
             resizeToAvoidBottomInset: true,
-            body: GestureDetector(
+            body: SafeArea(
+              top: false,
+              child: GestureDetector(
               onTap: () => Navigator.pop(context),
               behavior: HitTestBehavior.opaque,
               child: ContentEditWidget(
@@ -1100,6 +1106,7 @@ Future<dynamic> showContentEditSheet(
                 onUpdate: (value) {
                   if (onUpdate != null) onUpdate(value);
                 },
+              ),
               ),
             ),
           ));
@@ -1173,12 +1180,14 @@ void showUserPage({required BuildContext context, required String username}) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    builder: (context) {
-      return UserPopSlideOpenPage(
+    useSafeArea: true,
+    builder: (context) => SafeArea(
+      top: false,
+      child: UserPopSlideOpenPage(
         username: username,
         isSelf: false,
-      );
-    },
+      ),
+    ),
   );
 }
 
@@ -1278,19 +1287,24 @@ Widget _spoilerWidget(ExtensionContext c, BuildContext context) {
           showModalBottomSheet(
               context: context,
               isScrollControlled: true,
-              builder: (context) => ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: 300),
-                    child: Material(
-                      child: SingleChildScrollView(
-                        child: BbcodeWidget(
-                          shrinkWrap: false,
-                          alignCenter:
-                              (innerHtml ?? "").length > 1000 ? false : true,
-                          body: "<div> $innerHtml </div>",
-                        ),
+              useSafeArea: true,
+              builder: (context) => SafeArea(
+                top: false,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: 300),
+                  child: Material(
+                    child: SingleChildScrollView(
+                      child: BbcodeWidget(
+                        shrinkWrap: false,
+                        alignCenter:
+                            (innerHtml ?? "").length > 1000 ? false : true,
+                        body: "<div> $innerHtml </div>",
                       ),
                     ),
-                  ));
+                  ),
+                ),
+              ),
+          );
         }),
   );
 }
@@ -1448,7 +1462,11 @@ Future<void> openFutureAndNavigate<T>({
 }) async {
   showModalBottomSheet(
     context: context,
-    builder: (_) => loadingBelowText(text: text),
+    useSafeArea: true,
+    builder: (_) => SafeArea(
+      top: false,
+      child: loadingBelowText(text: text),
+    ),
   );
 
   try {

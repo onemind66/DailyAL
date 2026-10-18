@@ -133,31 +133,32 @@ class _HomePageState extends State<HomePage> {
 
   _showGenresModal() => showBottomSheet(
       context: context,
-      builder: (_) => Material(
-            child: SizedBox(
-              height: 260.0,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(20.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(S.of(context).Genres),
-                        IconButton(
-                          icon: Icon(Icons.close),
-                          onPressed: () => Navigator.pop(context),
-                        )
-                      ],
-                    ),
+      builder: (_) => SafeArea(
+        top: false,
+        child: Material(
+          child: SizedBox(
+            height: 260.0,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(S.of(context).Genres),
+                      IconButton(
+                        icon: Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      )
+                    ],
                   ),
-                  AllGenreWidget(
-                    category: 'anime',
-                  ),
-                ],
-              ),
+                ),
+                AllGenreWidget(category: 'anime'),
+              ],
             ),
-          ));
+          ),
+        ),
+      ));
 
   @override
   Widget build(BuildContext context) {

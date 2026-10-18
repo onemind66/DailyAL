@@ -364,14 +364,16 @@ void showSortFilterDisplayModal({
 }) {
   showModalBottomSheet(
     context: context,
-    builder: (BuildContext context) {
-      return SortFilterPopup(
+    useSafeArea: true,
+    builder: (BuildContext context) => SafeArea(
+      top: false,
+      child: SortFilterPopup(
         sortFilterDisplay: sortFilterDisplay,
         onSortFilterChange: onSortFilterChange,
         sortFilterOptions: sortFilterOptions,
         onClose: () => Navigator.pop(context),
-      );
-    },
+      ),
+    ),
   );
 }
 

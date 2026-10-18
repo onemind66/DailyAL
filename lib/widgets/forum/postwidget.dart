@@ -437,19 +437,24 @@ class _PostWidgetState extends State<PostWidget>
     showModalBottomSheet(
         context: context,
         isScrollControlled: true,
-        builder: (context) => ConstrainedBox(
-              constraints:
-                  BoxConstraints(minHeight: 150, minWidth: double.infinity),
-              child: Material(
-                child: SingleChildScrollView(
-                  child: BbcodeWidget(
-                    shrinkWrap: false,
-                    alignCenter: true,
-                    body: "<div> $content </div>",
-                  ),
+        useSafeArea: true,
+        builder: (context) => SafeArea(
+          top: false,
+          child: ConstrainedBox(
+            constraints:
+                BoxConstraints(minHeight: 150, minWidth: double.infinity),
+            child: Material(
+              child: SingleChildScrollView(
+                child: BbcodeWidget(
+                  shrinkWrap: false,
+                  alignCenter: true,
+                  body: "<div> $content </div>",
                 ),
               ),
-            ));
+            ),
+          ),
+        ),
+    );
   }
 
   Widget quotePostWidget(

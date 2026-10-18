@@ -108,9 +108,12 @@ class AllGenreWidget extends StatelessWidget {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) => SizedBox(
-        width: double.infinity,
-        child: Material(
+      useSafeArea: true,
+      builder: (context) => SafeArea(
+        top: false,
+        child: SizedBox(
+          width: double.infinity,
+          child: Material(
           child: Padding(
             padding: const EdgeInsets.all(16.0),
             child: CustomScrollView(
@@ -149,6 +152,7 @@ class AllGenreWidget extends StatelessWidget {
               ],
             ),
           ),
+        ),
         ),
       ),
     );

@@ -102,9 +102,13 @@ void _onAvatarTap({
     isScrollControlled: true,
     useRootNavigator: true,
     isDismissible: true,
+    useSafeArea: true,
     context: context,
-    builder: (context) => AppSideBar(
-      onUiChange: () => onUiChange != null ? onUiChange() : null,
+    builder: (context) => SafeArea(
+      top: false,
+      child: AppSideBar(
+        onUiChange: () => onUiChange != null ? onUiChange() : null,
+      ),
     ),
   );
 }

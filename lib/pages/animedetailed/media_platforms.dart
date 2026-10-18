@@ -76,9 +76,13 @@ class _AddtionalMediaPlatformsState extends State<AddtionalMediaPlatforms> {
                 onPressed: () async {
                   await showModalBottomSheet(
                       context: context,
-                      builder: (context) => DetailedLinks(
-                            categorizedLinks: categorizedLinks,
-                          ),
+                      useSafeArea: true,
+                      builder: (context) => SafeArea(
+                        top: false,
+                        child: DetailedLinks(
+                          categorizedLinks: categorizedLinks,
+                        ),
+                      ),
                       shape: RoundedRectangleBorder(
                           borderRadius:
                               BorderRadius.vertical(top: Radius.circular(20))));
