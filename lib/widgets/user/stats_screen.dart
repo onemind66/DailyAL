@@ -82,10 +82,25 @@ class _UserStatsScreenState extends State<UserStatsScreen> {
     if (mounted) setState(() {});
   }
 
+  int _insightsRequestId = 0;
+
   void _setUserInsights() async {
-    var allUserList = await MalUser.getAllUserList(widget.username, _category);
-    _insights = UserInsights(allUserList.data ?? [], _category);
-    if (mounted) setState(() {});
+    // Guard against out-of-order responses when the category is switched
+    // quickly (anime <-> manga); stale data must never overwrite fresh data.
+    final requestId = ++_insightsRequestId;
+    final requestedCategory = _category;
+    UserInsights? insights;
+    try {
+      final allUserList =
+          await MalUser.getAllUserList(widget.username, requestedCategory);
+      insights = UserInsights(allUserList.data ?? [], requestedCategory);
+    } catch (e) {
+      logDal(e);
+      insights = UserInsights([], requestedCategory);
+    }
+    if (!mounted || requestId != _insightsRequestId) return;
+    _insights = insights;
+    setState(() {});
   }
 
   var mangaList = [S.current.Reading, 'CMPL', 'On Hold', 'Dropped', 'PTR'];
@@ -169,7 +184,8 @@ class _UserStatsScreenState extends State<UserStatsScreen> {
 
   void _onCategoryChange(value) {
     _category = contentTypes[value];
-    _setUserInsights();
+    _insights = null;
+    if (user.status == AuthStatus.AUTHENTICATED) _setUserInsights();
     setState(() {});
   }
 
@@ -248,23 +264,29 @@ class _UserStatsScreenState extends State<UserStatsScreen> {
   }
 
   List<Widget> _advancedChartWidgets(UserInsights insights) {
+    Widget keyed(String name, Widget child) => KeyedSubtree(
+          key: ValueKey('$name-$_category-${identityHashCode(insights)}'),
+          child: child,
+        );
     return [
       SB.lh10,
-      SliverWrapper(_scoreDistribution(
-          insights.statusScoreDistributionMap, insights.unrankedShows ?? 0)),
+      SliverWrapper(keyed(
+          'score',
+          _scoreDistribution(
+              insights.statusScoreDistributionMap, insights.unrankedShows ?? 0))),
       SB.lh10,
-      SliverWrapper(_genreDistribution(insights)),
+      SliverWrapper(keyed('genre', _genreDistribution(insights))),
       SB.lh10,
       if (insights.iLikeItTheyHateIt.isNotEmpty)
-        SliverWrapper(_iLikeItTheyHateItWidget(insights)),
+        SliverWrapper(keyed('ilike', _iLikeItTheyHateItWidget(insights))),
       SB.lh10,
-      SliverWrapper(_mediaTypeDistribution(insights)),
+      SliverWrapper(keyed('media', _mediaTypeDistribution(insights))),
       if (_animeSelected) ...[
         SB.lh10,
-        SliverWrapper(_sourceDistribution(insights)),
+        SliverWrapper(keyed('source', _sourceDistribution(insights))),
       ],
       SB.lh10,
-      SliverWrapper(_studioAuthorDistribution(insights)),
+      SliverWrapper(keyed('studio', _studioAuthorDistribution(insights))),
       SB.lh10,
     ];
   }

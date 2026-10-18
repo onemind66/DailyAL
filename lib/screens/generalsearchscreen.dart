@@ -168,6 +168,28 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
 
   DisplayOption get _displayOption => _sortFilterDisplay.displayOption;
 
+  /// Top padding of the custom search bar: clears the (cutout-aware) status bar.
+  double get _searchBarTop {
+    final t = MediaQuery.paddingOf(context).top + 11;
+    return t > 35.0 ? t : 35.0;
+  }
+
+  /// Extra offset to push fixed-position content below a taller status bar.
+  double get _topShift => widget.exclusiveScreen ? 0.0 : _searchBarTop - 35.0;
+
+  /// Annotate results with the signed-in user's list status/score/progress
+  /// when the API source (Jikan, suggestions, ...) did not provide it.
+  Future<void> _mergeMyListStatus() async {
+    if (user.status != AuthStatus.AUTHENTICATED) return;
+    if (!['anime', 'manga'].contains(category)) return;
+    try {
+      await MalApi.mergeCachedMyListStatus(results, category,
+          fetchIfMissing: true);
+    } catch (e) {
+      logDal(e);
+    }
+  }
+
   DisplayType get displayType => _displayOption.displayType;
 
   bool get _hasLoadMore {
@@ -432,6 +454,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
           stage = SearchStage.notstarted;
           return;
         }
+        await _mergeMyListStatus();
       } else {
         if (category.equals("all")) {
           searchResult = await MalApi.searchAllCategories(query);
@@ -496,6 +519,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
           return;
         }
         results = searchResult?.data ?? [];
+        await _mergeMyListStatus();
       }
     } catch (e) {
       showToast(S.current.Couldnt_connect_network);
@@ -586,6 +610,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
           searchResult = _searchResult;
         }
       }
+      await _mergeMyListStatus();
     } catch (e) {
       logDal(e);
     }
@@ -689,7 +714,9 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
               builder: _onSearchBuild,
             ),
             searchbar(),
-            Padding(padding: EdgeInsets.only(top: 83), child: _filterSection()),
+            Padding(
+                padding: EdgeInsets.only(top: 83 + _topShift),
+                child: _filterSection()),
           ],
         ),
       ),
@@ -730,7 +757,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
                 stage == SearchStage.notstarted ||
                 stage == SearchStage.empty)
             ? 0
-            : 150);
+            : 150 + _topShift);
     return Padding(
       padding: topPadding,
       child: stage == SearchStage.notstarted
@@ -834,13 +861,14 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
     Widget _build;
     if (category.equals("all")) {
       _build = Padding(
-        padding: EdgeInsets.only(top: 135),
+        padding: EdgeInsets.only(top: 135 + _topShift),
         child: allSectionBody(),
       );
     } else {
       _build = ListView(
         padding: EdgeInsets.only(
-            top: widget.exclusiveScreen ? 0.0 : 90.0, bottom: 0),
+            top: widget.exclusiveScreen ? 0.0 : 90.0 + _topShift,
+            bottom: MediaQuery.paddingOf(context).bottom),
         children: [
           const SizedBox(height: 20),
           _buildResultLayout(),
@@ -1030,7 +1058,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
     final recentAnime = data?.recentAnime ?? [];
     final recentManga = data?.recentManga ?? [];
     final _searchNodes = searchNodes ?? [];
-    final padding = EdgeInsets.only(top: 90.0);
+    final padding = EdgeInsets.only(top: 90.0 + _topShift);
 
     return CustomScrollWrapper([
       SliverToBoxAdapter(
@@ -1464,7 +1492,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
           ),
           child: Material(
             child: Padding(
-              padding: EdgeInsets.only(top: 35),
+              padding: EdgeInsets.only(top: _searchBarTop),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [

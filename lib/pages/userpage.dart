@@ -455,7 +455,8 @@ class _UserPageState extends State<UserPage> with TickerProviderStateMixin {
       appBar: PreferredSize(
           preferredSize: Size(double.infinity, kToolbarHeight),
           child: Padding(
-            padding: const EdgeInsets.only(top: 35.0),
+            padding: EdgeInsets.only(
+                top: MediaQuery.paddingOf(context).top + 11),
             child: AppBarHome(),
           )),
     );

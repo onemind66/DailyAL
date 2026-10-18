@@ -66,6 +66,15 @@ class _ScoreItemDistributionWidgetState
         .toList();
   }
 
+  @override
+  void didUpdateWidget(covariant ScoreItemDistributionWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.scoreItemMap, widget.scoreItemMap) ||
+        oldWidget.category != widget.category) {
+      _setScoreItemMap();
+    }
+  }
+
   void _setScoreItemMap() {
     if (S.current.Select.equals(_selectedFilter)) {
       _scoreItemMap = _copyMap(widget.scoreItemMap);

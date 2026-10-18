@@ -34,10 +34,18 @@ class CustomScrollWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Keep the last item clear of the system navigation bar (edge-to-edge).
+    // Scaffold already strips this inset when a bottom bar is present.
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final addInset =
+        !shrink && scrollDirection == Axis.vertical && bottomInset > 0;
     return CustomScrollView(
       shrinkWrap: shrink,
       physics: shrink ? const NeverScrollableScrollPhysics() : null,
-      slivers: slivers,
+      slivers: [
+        ...slivers,
+        if (addInset) SliverToBoxAdapter(child: SizedBox(height: bottomInset)),
+      ],
       scrollDirection: scrollDirection,
     );
   }

@@ -252,9 +252,45 @@ class MalUser {
     bool fromCache = true,
     String? fields,
   }) async {
+    final result = await _fetchAllUserList(
+      username,
+      category,
+      status: status,
+      sortType: sortType,
+      fromCache: fromCache,
+      fields: fields,
+    );
+    // A cached/failed first attempt can silently yield an empty list, which
+    // makes every profile graph show "No Enough Data". Retry once from network.
+    if (fromCache && nullOrEmpty(result.data)) {
+      return _fetchAllUserList(
+        username,
+        category,
+        status: status,
+        sortType: sortType,
+        fromCache: false,
+        fields: fields,
+      );
+    }
+    return result;
+  }
+
+  static Future<SearchResult> _fetchAllUserList(
+    String username,
+    String category, {
+    String? status,
+    String? sortType,
+    required bool fromCache,
+    String? fields,
+  }) async {
     final limit = 1000;
+    // anime-only fields (broadcast/source/studios) are not valid for manga,
+    // manga needs `authors` for the author distribution graph.
+    final baseFields = category.equals('manga')
+        ? 'alternative_titles,genres,media_type,start_date,authors{first_name,last_name},list_status,mean'
+        : 'alternative_titles,genres,media_type,start_date,broadcast,source,studios,list_status,mean';
     String url =
-        '${CredMal.userEndPoint}$username/${category}list?fields=alternative_titles,genres,media_type,start_date,broadcast,source,studios,list_status,mean${fields == null ? '' : ',${fields}'}&limit=$limit';
+        '${CredMal.userEndPoint}$username/${category}list?fields=$baseFields${fields == null ? '' : ',${fields}'}&limit=$limit';
     if (status != null) {
       url += "&status=$status";
     }
@@ -262,18 +298,20 @@ class MalUser {
       url += "&sort=$sortType";
     }
     List<BaseNode> allNodes = [];
-    final firstResult = SearchResult.fromJson(await MalConnect.getContent(url,
-        retryOnFail: false, fromCache: fromCache));
+    final firstResult = SearchResult.fromJson(
+        await MalConnect.getContent(url,
+            retryOnFail: false, fromCache: fromCache),
+        category: category);
     if (!nullOrEmpty(firstResult.data)) {
       allNodes.addAll(firstResult.data?.toList() ?? []);
     }
     var currentCount = firstResult.data?.length ?? 0;
     var nextUrl = firstResult.paging?.next;
     while (nextUrl != null && nextUrl.isNotBlank && currentCount == limit) {
-      final nextResult = SearchResult.fromJson(await MalConnect.getContent(
-          nextUrl,
-          retryOnFail: false,
-          fromCache: fromCache));
+      final nextResult = SearchResult.fromJson(
+          await MalConnect.getContent(nextUrl,
+              retryOnFail: false, fromCache: fromCache),
+          category: category);
       nextUrl = nextResult.paging?.next;
       final list = nextResult.data?.toList() ?? [];
       allNodes.addAll(list);

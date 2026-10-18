@@ -68,15 +68,12 @@ class MalApi {
     return result;
   }
 
-  static Future<void> mergeCachedMyListStatus(
-      List<BaseNode>? nodes, String category) async {
-    if (user.status != AuthStatus.AUTHENTICATED ||
-        !['anime', 'manga'].contains(category) ||
-        nodes == null ||
-        nodes.isEmpty) {
-      return;
-    }
+  /// Categories whose full "my list" has already been downloaded this session
+  /// so search results can be annotated without refetching every time.
+  static final Set<String> _myListFetchedCategories = {};
 
+  static Future<Map<int, dynamic>> _readCachedMyListStatuses(
+      String category) async {
     final preferences = await SharedPreferences.getInstance();
     final cachePrefix = '${CredMal.myEndPoint}${category}list?';
     final cachedStatuses = <int, dynamic>{};
@@ -100,9 +97,9 @@ class MalApi {
           }
           final id = int.tryParse('${item['node']['id']}');
           if (id == null) continue;
-            final statusJson = item['list_status'] as Map<String, dynamic>;
-            if (statusJson['status'] == null) continue;
-            final updatedAt =
+          final statusJson = item['list_status'] as Map<String, dynamic>;
+          if (statusJson['status'] == null) continue;
+          final updatedAt =
               DateTime.tryParse(statusJson['updated_at']?.toString() ?? '');
           final status = category == 'anime'
               ? MyAnimeListStatus.fromJson(statusJson)
@@ -120,6 +117,40 @@ class MalApi {
         logDal(e);
       }
     }
+    return cachedStatuses;
+  }
+
+  /// Copies the signed-in user's list status (status / score / progress) onto
+  /// search results that did not come with `my_list_status` (Jikan genre
+  /// search, html "all" search, suggestions, ...).
+  ///
+  /// When [fetchIfMissing] is true and the user's list is not cached yet, the
+  /// list is downloaded once (it is cached by [MalConnect.getContent]).
+  static Future<void> mergeCachedMyListStatus(
+    List<BaseNode>? nodes,
+    String category, {
+    bool fetchIfMissing = false,
+  }) async {
+    if (user.status != AuthStatus.AUTHENTICATED ||
+        !['anime', 'manga'].contains(category) ||
+        nodes == null ||
+        nodes.isEmpty) {
+      return;
+    }
+
+    var cachedStatuses = await _readCachedMyListStatuses(category);
+    if (cachedStatuses.isEmpty &&
+        fetchIfMissing &&
+        !_myListFetchedCategories.contains(category)) {
+      _myListFetchedCategories.add(category);
+      try {
+        await MalUser.getAllUserList('@me', category, fromCache: false);
+        cachedStatuses = await _readCachedMyListStatuses(category);
+      } catch (e) {
+        _myListFetchedCategories.remove(category);
+        logDal(e);
+      }
+    }
 
     if (cachedStatuses.isEmpty) return;
     for (final baseNode in nodes) {
@@ -129,7 +160,11 @@ class MalApi {
       final currentStatus = category == 'anime'
           ? (content is AnimeDetailed ? content.myListStatus?.status : null)
           : (content is MangaDetailed ? content.myListStatus?.status : null);
-      if (currentStatus != null || !cachedStatuses.containsKey(id)) continue;
+      final baseStatus = (baseNode.myListStatus as dynamic)?.status;
+      if ((currentStatus != null || baseStatus != null) ||
+          !cachedStatuses.containsKey(id)) {
+        continue;
+      }
 
       final cachedStatus = cachedStatuses[id];
       baseNode.myListStatus = cachedStatus;
