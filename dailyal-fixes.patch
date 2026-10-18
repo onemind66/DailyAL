@@ -1,0 +1,970 @@
+diff --git a/android/app/src/main/AndroidManifest.xml b/android/app/src/main/AndroidManifest.xml
+--- a/android/app/src/main/AndroidManifest.xml
++++ b/android/app/src/main/AndroidManifest.xml
+@@ -11,6 +11,7 @@
+ 
+     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/> 
+     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
++    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+ 
+     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+     <uses-permission android:name="android.permission.READ_CALENDAR" />
+
+diff --git a/dal-api/dal_commons/lib/src/constants/constant.dart b/dal-api/dal_commons/lib/src/constants/constant.dart
+--- a/dal-api/dal_commons/lib/src/constants/constant.dart
++++ b/dal-api/dal_commons/lib/src/constants/constant.dart
+@@ -21,15 +21,22 @@ class LogConfig {
+ 
+ final dalLogConfig = LogConfig();
+ 
++typedef LogDalFileWriter = void Function(String line);
++
++/// Optional file sink registered by the app. File output does not depend on
++/// console debug mode, and logging errors must never break the application.
++LogDalFileWriter? logDalFileWriter;
++
+ /// LOG
+ void logDal(dynamic message) {
++  final line = '${DateTime.now().toIso8601String()}  ${message ?? "null"}';
+   if (dalLogConfig.debugMode) {
+-    final time = DateTime.now().toIso8601String();
+-    if (message == null) {
+-      print('$time  null');
+-    } else {
+-      print('$time  $message');
+-    }
++    print(line);
++  }
++  try {
++    logDalFileWriter?.call(line);
++  } catch (_) {
++    // A diagnostic sink must never throw into application code.
+   }
+ }
+ 
+
+diff --git a/lib/pages/settings/userprefsetting.dart b/lib/pages/settings/userprefsetting.dart
+--- a/lib/pages/settings/userprefsetting.dart
++++ b/lib/pages/settings/userprefsetting.dart
+@@ -7,6 +7,7 @@ import 'package:dailyanimelist/pages/settings/optiontile.dart';
+ import 'package:dailyanimelist/screens/contentdetailedscreen.dart';
+ import 'package:dailyanimelist/screens/generalsearchscreen.dart';
+ import 'package:dailyanimelist/util/responsive_helper.dart';
++import 'package:dailyanimelist/util/file_logger.dart';
+ import 'package:dailyanimelist/widgets/avatarwidget.dart';
+ import 'package:dotted_border/dotted_border.dart';
+ import 'package:line_icons/line_icons.dart';
+@@ -276,6 +277,18 @@ class _UserPrefSettingsState extends State<UserPrefSettings> {
+               onToggled: (value) => changeShowAiringInfo(value),
+             ),
+           ),
++          OptionTile(
++            text: 'Log Diagnostik',
++            iconData: Icons.bug_report_outlined,
++            multiLine: true,
++            desc:
++                'Simpan log diagnostik per sesi. Jika akses penyimpanan umum ditolak, log disimpan di folder aplikasi.',
++            onPressed: () => changeEnableLog(!user.pref.enableLog),
++            trailing: ToggleButton(
++              toggleValue: user.pref.enableLog,
++              onToggled: (value) => changeEnableLog(value),
++            ),
++          ),
+           if (user.pref.userchart != null)
+             Accordion(
+               isOpen: colorOptions,
+@@ -416,6 +429,22 @@ class _UserPrefSettingsState extends State<UserPrefSettings> {
+     );
+   }
+ 
++  Future<void> changeEnableLog(bool value) async {
++    user.pref.enableLog = value;
++    final rootDirectoryGranted = await DailyALFileLogger.setEnabled(
++      value,
++      requestRootPermission: value,
++    );
++    await user.setIntance();
++    if (!mounted) return;
++    setState(() {});
++    if (value) {
++      showToast(rootDirectoryGranted
++          ? 'Log aktif: /storage/emulated/0/dailyal/'
++          : 'Log aktif; akses root tidak tersedia. Log disimpan di folder aplikasi.');
++    }
++  }
++
+   void changeAutoTranslate(bool value) async {
+     user.pref.autoTranslateSynopsis = value;
+     user.setIntance();
+
+diff --git a/lib/user/userpref.dart b/lib/user/userpref.dart
+--- a/lib/user/userpref.dart
++++ b/lib/user/userpref.dart
+@@ -4,6 +4,7 @@ import 'package:dailyanimelist/screens/contentdetailedscreen.dart';
+ import 'package:dailyanimelist/screens/generalsearchscreen.dart';
+ import 'package:dailyanimelist/user/anime_manga_pref.dart';
+ import 'package:dailyanimelist/user/hompagepref.dart';
++import 'package:dailyanimelist/util/file_logger.dart';
+ import 'package:dal_commons/commons.dart';
+ import 'package:flutter/services.dart';
+ 
+@@ -47,6 +48,7 @@ class UserPreferences {
+   LinkType preferredLinkType;
+   bool allowYoutubePlayer;
+   String preferredFont;
++  bool enableLog;
+   UserPreferences({
+     required this.firstTime,
+     required this.homePageTileSize,
+@@ -87,7 +89,10 @@ class UserPreferences {
+     required this.preferredLinkType,
+     required this.allowYoutubePlayer,
+     required this.preferredFont,
+-  });
++    this.enableLog = false,
++  }) {
++    DailyALFileLogger.configure(enabled: enableLog);
++  }
+ 
+   factory UserPreferences.fromJson(Map<String, dynamic>? json) {
+     List<int>? _cacheUpdateFrequency;
+@@ -262,6 +267,7 @@ class UserPreferences {
+             allowYoutubePlayer: json['allowYoutubePlayer'] ?? false,
+             showAnimeMangaCard: json['showAnimeMangaCard'] ?? false,
+             preferredFont: json['preferredFont'] ?? 'Poppins',
++            enableLog: json['enableLog'] ?? false,
+             animeMangaPagePreferences: _animeMangaPagePreferences ??
+                 AnimeMangaPagePreferences.defaultObject())
+         : UserPreferences(
+@@ -348,6 +354,7 @@ class UserPreferences {
+       'allowYoutubePlayer': allowYoutubePlayer,
+       'preferredLinkType': preferredLinkType.name,
+       'preferredFont': preferredFont,
++      'enableLog': enableLog,
+     };
+   }
+ }
+
+diff --git a/lib/util/file_logger.dart b/lib/util/file_logger.dart
+--- a/lib/util/file_logger.dart
++++ b/lib/util/file_logger.dart
+@@ -0,0 +1,139 @@
++import 'dart:io';
++
++import 'package:dal_commons/dal_commons.dart' as dal;
++import 'package:path_provider/path_provider.dart';
++import 'package:permission_handler/permission_handler.dart';
++
++/// Opt-in logger for collecting diagnostic output. It prefers
++/// /storage/emulated/0/dailyal/ when Android grants broad storage access and
++/// falls back to app-owned external/documents storage otherwise.
++class DailyALFileLogger {
++  static bool _enabled = false;
++  static bool _rootPermissionGranted = false;
++  static File? _activeFile;
++  static Future<void> _pendingWrites = Future<void>.value();
++
++  static void configure({required bool enabled}) {
++    dal.logDalFileWriter = _enqueue;
++    _enabled = enabled;
++    if (!enabled) {
++      _activeFile = null;
++      _rootPermissionGranted = false;
++    }
++  }
++
++  /// Request broad storage permission only after the user turns logging on.
++  static Future<bool> setEnabled(
++    bool enabled, {
++    bool requestRootPermission = false,
++  }) async {
++    _enabled = enabled;
++    dal.logDalFileWriter = _enqueue;
++
++    if (!enabled) {
++      await _pendingWrites;
++      _activeFile = null;
++      _rootPermissionGranted = false;
++      return false;
++    }
++
++    _activeFile = null;
++    if (Platform.isAndroid && requestRootPermission) {
++      try {
++        var status = await Permission.manageExternalStorage.status;
++        if (!status.isGranted) {
++          status = await Permission.manageExternalStorage.request();
++        }
++        _rootPermissionGranted = status.isGranted;
++      } catch (_) {
++        _rootPermissionGranted = false;
++      }
++
++      if (!_rootPermissionGranted) {
++        try {
++          var status = await Permission.storage.status;
++          if (!status.isGranted) {
++            status = await Permission.storage.request();
++          }
++          _rootPermissionGranted = status.isGranted;
++        } catch (_) {
++          _rootPermissionGranted = false;
++        }
++      }
++    }
++
++    _enqueue(
++      '=== DailyAL diagnostic logging enabled '
++      '${DateTime.now().toIso8601String()} ===',
++    );
++    await _pendingWrites;
++    return _activeFile?.parent.path == '/storage/emulated/0/dailyal';
++  }
++
++  static void _enqueue(String line) {
++    if (!_enabled) return;
++    _pendingWrites = _pendingWrites
++        .then((_) async {
++          final file = await _getLogFile();
++          if (file == null) return;
++          await file.writeAsString(
++            '$line\n',
++            mode: FileMode.append,
++            flush: true,
++          );
++        })
++        .catchError((Object _) {
++          // Do not recurse into logDal if storage is unavailable.
++        });
++  }
++
++  static Future<File?> _getLogFile() async {
++    if (_activeFile != null) return _activeFile;
++
++    final fileName = 'dailyal_${_timestamp(DateTime.now())}.log';
++
++    if (Platform.isAndroid) {
++      var canUseRoot = _rootPermissionGranted;
++      try {
++        canUseRoot = canUseRoot ||
++            await Permission.manageExternalStorage.isGranted ||
++            await Permission.storage.isGranted;
++      } catch (_) {
++        // A permission API failure means app-owned fallback below.
++      }
++
++      if (canUseRoot) {
++        try {
++          final directory = Directory('/storage/emulated/0/dailyal');
++          await directory.create(recursive: true);
++          final file = File('${directory.path}/$fileName');
++          await file.create(recursive: true);
++          _activeFile = file;
++          return file;
++        } catch (_) {
++          // Scoped storage/OEM restrictions can still deny root writes.
++        }
++      }
++    }
++
++    try {
++      final externalDirectory = await getExternalStorageDirectory();
++      final baseDirectory =
++          externalDirectory ?? await getApplicationDocumentsDirectory();
++      final directory = Directory('${baseDirectory.path}/dailyal');
++      await directory.create(recursive: true);
++      final file = File('${directory.path}/$fileName');
++      await file.create(recursive: true);
++      _activeFile = file;
++      return file;
++    } catch (_) {
++      return null;
++    }
++  }
++
++  static String _timestamp(DateTime value) {
++    String two(int n) => n.toString().padLeft(2, '0');
++    return '${value.year}-${two(value.month)}-${two(value.day)}_'
++        '${two(value.hour)}-${two(value.minute)}-${two(value.second)}';
++  }
++}
+
+diff --git a/lib/api/malapi.dart b/lib/api/malapi.dart
+--- a/lib/api/malapi.dart
++++ b/lib/api/malapi.dart
+@@ -29,8 +29,16 @@ class MalApi {
+     'sunday': 7
+   };
+ 
+-  static const listDetailedFields =
+-      "num_episodes,broadcast,start_date,alternative_titles,status,mean,num_list_users,genres,media_type,num_volumes,my_list_status";
++  static const animeDetailedFields =
++      "num_episodes,broadcast,start_date,alternative_titles,status,mean,num_list_users,genres,media_type,my_list_status";
++
++  static const mangaDetailedFields =
++      "num_chapters,num_volumes,start_date,alternative_titles,status,mean,num_list_users,genres,media_type,authors{first_name,last_name},my_list_status";
++
++  static const listDetailedFields = animeDetailedFields;
++
++  static String fieldsForCategory(String category) =>
++      category == "manga" ? mangaDetailedFields : animeDetailedFields;
+ 
+   static const userMangaFields =
+       'my_list_status{is_rewatching,is_rereading,num_times_rewatched,num_times_reread,priority,rewatch_value,reread_value,start_date,finish_date,tags,comments}';
+@@ -59,7 +67,7 @@ class MalApi {
+           fields.reduce((value, element) => (value + "," + element));
+     } else {
+       url +=
+-          "?fields=id,title,main_picture,alternative_titles,start_date,end_date,synopsis,mean,rank,popularity,num_list_users,num_scoring_users,nsfw,created_at,updated_at,media_type,status,genres,my_list_status,num_episodes,start_season,broadcast,source,average_episode_duration,rating,pictures,background,related_anime,related_manga,recommendations,studios,statistics";
++          "&fields=id,title,main_picture,alternative_titles,start_date,end_date,synopsis,mean,rank,popularity,num_list_users,num_scoring_users,nsfw,created_at,updated_at,media_type,status,genres,my_list_status,num_episodes,start_season,broadcast,source,average_episode_duration,rating,pictures,background,related_anime,related_manga,recommendations,studios,statistics";
+     }
+     final result = SearchResult.fromJson(
+         await MalConnect.getContent(url, fromCache: fromCache),
+
+diff --git a/lib/api/maluser.dart b/lib/api/maluser.dart
+--- a/lib/api/maluser.dart
++++ b/lib/api/maluser.dart
+@@ -153,7 +153,9 @@ class MalUser {
+     }
+ 
+     return SearchResult.fromJson(
+-        await MalConnect.getContent(url, fromCache: fromCache));
++      await MalConnect.getContent(url, fromCache: fromCache),
++      category: category,
++    );
+   }
+ 
+   /// Get User Anime Status
+@@ -305,18 +307,26 @@ class MalUser {
+     if (!nullOrEmpty(firstResult.data)) {
+       allNodes.addAll(firstResult.data?.toList() ?? []);
+     }
+-    var currentCount = firstResult.data?.length ?? 0;
+     var nextUrl = firstResult.paging?.next;
+-    while (nextUrl != null && nextUrl.isNotBlank && currentCount == limit) {
++    final visitedUrls = <String>{url};
++    // Follow paging.next until it is exhausted. MAL can return fewer than the
++    // requested limit on an intermediate page; using page length as a stop
++    // condition silently truncates larger lists.
++    while (nextUrl != null &&
++        nextUrl.isNotBlank &&
++        visitedUrls.add(nextUrl)) {
+       final nextResult = SearchResult.fromJson(
+           await MalConnect.getContent(nextUrl,
+               retryOnFail: false, fromCache: fromCache),
+           category: category);
+-      nextUrl = nextResult.paging?.next;
+       final list = nextResult.data?.toList() ?? [];
+       allNodes.addAll(list);
+-      currentCount = list.length;
++      nextUrl = nextResult.paging?.next;
++      logDal(
++          '[UserList] category=$category fetched=${allNodes.length} pageItems=${list.length} hasNext=${nextUrl != null}');
+     }
++    logDal(
++        '[UserList] category=$category total=${allNodes.length} fromCache=$fromCache url=$url');
+     return SearchResult(data: allNodes);
+   }
+ }
+
+diff --git a/lib/screens/generalsearchscreen.dart b/lib/screens/generalsearchscreen.dart
+--- a/lib/screens/generalsearchscreen.dart
++++ b/lib/screens/generalsearchscreen.dart
+@@ -360,8 +360,12 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
+   }
+ 
+   Future<void> getSuggestedContent({bool fromCache = false}) async {
+-    searchResult =
+-        await MalUser.getContentSuggestions(fromCache: fromCache, limit: 31);
++    searchResult = await MalUser.getContentSuggestions(
++      fromCache: fromCache,
++      limit: 31,
++      category: category,
++      fields: [MalApi.fieldsForCategory(category)],
++    );
+     results = searchResult?.data ?? [];
+   }
+ 
+@@ -372,7 +376,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
+       category: category,
+       limit: 31,
+       fromCache: fromCache,
+-      fields: [MalApi.listDetailedFields, 'my_list_status'],
++      fields: [MalApi.fieldsForCategory(category)],
+     );
+     results = searchResult?.data ?? [];
+   }
+@@ -510,9 +514,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
+                 category: category,
+                 fromCache: fromCache,
+                 limit: 31,
+-                fields: [
+-                  "num_episodes,broadcast,alternative_titles,start_date,status,mean,num_list_users,genres,media_type,num_volumes,my_list_status"
+-                ]);
++                fields: [MalApi.fieldsForCategory(category)]);
+           }
+         }
+         if (stage != SearchStage.started) {
+
+diff --git a/dal-api/dal_commons/lib/src/model/global/animenode.dart b/dal-api/dal_commons/lib/src/model/global/animenode.dart
+--- a/dal-api/dal_commons/lib/src/model/global/animenode.dart
++++ b/dal-api/dal_commons/lib/src/model/global/animenode.dart
+@@ -1,14 +1,35 @@
+ import 'package:dal_commons/src/model/anime/animedetailed.dart';
++import 'package:dal_commons/src/model/anime/animestudio.dart';
+ import 'package:dal_commons/src/model/anime/myanimeliststatus.dart';
+ import 'package:dal_commons/src/model/global/node.dart';
++import 'package:dal_commons/src/model/global/genre.dart';
+ import 'package:dal_commons/src/model/global/ranking.dart';
+ import 'package:dal_commons/src/model/manga/mangadetailed.dart';
++import 'package:dal_commons/src/model/manga/mangaauthors.dart';
+ import 'package:dal_commons/src/model/manga/mymangaliststatus.dart';
+ import 'package:dal_commons/src/constants/constant.dart';
+ import 'myliststatus.dart';
+ 
+ import 'package:json_annotation/json_annotation.dart';
+ 
++List<T> _parseListSafely<T>(
++  dynamic value,
++  T Function(Map<String, dynamic> json) parser,
++  String fieldName,
++) {
++  if (value is! List) return <T>[];
++  final result = <T>[];
++  for (final entry in value) {
++    if (entry is! Map) continue;
++    try {
++      result.add(parser(Map<String, dynamic>.from(entry)));
++    } catch (e) {
++      logDal('BaseNode: skipped malformed $fieldName entry: $e');
++    }
++  }
++  return result;
++}
++
+ class BaseNode {
+   final Node? content;
+   final Ranking? ranking;
+@@ -22,32 +43,115 @@ class BaseNode {
+     MyAnimeListStatus? animeList;
+     MyMangaListStatus? mangaList;
+     Node? node;
++    final dynamic rawNode =
++        json == null ? null : (json["node"] is Map ? json["node"] : json);
++    final Map<String, dynamic>? rawNodeJson =
++        rawNode is Map ? Map<String, dynamic>.from(rawNode) : null;
++
+     if (json != null) {
+-      try {
+-        animeList = MyAnimeListStatus.fromJson(json["list_status"]);
+-        if (animeList.numEpisodesWatched == null) throw Error();
+-      } catch (e) {
+-        animeList = null;
++      // List endpoints store list_status beside node. Discovery endpoints may
++      // store my_list_status directly in a flat content object.
++      final dynamic rawStatus =
++          json["list_status"] ?? rawNodeJson?["my_list_status"];
++      if (rawStatus is Map) {
+         try {
+-          mangaList = MyMangaListStatus.fromJson(json["list_status"]);
+-          if (mangaList.isRereading == null) throw Error();
++          final statusJson = Map<String, dynamic>.from(rawStatus);
++          if (category.equals("manga")) {
++            mangaList = MyMangaListStatus.fromJson(statusJson);
++          } else {
++            animeList = MyAnimeListStatus.fromJson(statusJson);
++          }
+         } catch (e) {
+-          mangaList = null;
++          logDal('BaseNode status parse failed category=$category: $e');
+         }
+       }
+-      try {
+-        if (category.equals("anime")) {
+-          node = AnimeDetailed.fromJson(json["node"]);
+-        } else if (category.equals("manga")) {
+-          node = MangaDetailed.fromJson(json["node"]);
++
++      if (rawNodeJson != null) {
++        try {
++          if (category.equals("manga")) {
++            node = MangaDetailed.fromJson(rawNodeJson);
++          } else {
++            node = AnimeDetailed.fromJson(rawNodeJson);
++          }
++        } catch (e) {
++          logDal(
++              'BaseNode detailed parse failed category=$category id=${rawNodeJson["id"]}: $e');
++          // Preserve chart-relevant fields if an unrelated optional property
++          // prevents the full model from being created.
++          if (category.equals("manga")) {
++            node = MangaDetailed(
++              id: int.tryParse('${rawNodeJson["id"]}'),
++              title: rawNodeJson["title"]?.toString(),
++              status: rawNodeJson["status"]?.toString(),
++              mean: double.tryParse('${rawNodeJson["mean"]}'),
++              mediaType: rawNodeJson["media_type"]?.toString(),
++              numChapters: int.tryParse('${rawNodeJson["num_chapters"]}'),
++              numVolumes: int.tryParse('${rawNodeJson["num_volumes"]}'),
++              genres: _parseListSafely<MalGenre>(
++                rawNodeJson["genres"],
++                (value) => MalGenre.fromJson(value),
++                "genres",
++              ),
++              authors: _parseListSafely<MangaAuthors>(
++                rawNodeJson["authors"],
++                (value) => MangaAuthors.fromJson(value),
++                "authors",
++              ),
++            );
++          } else {
++            node = AnimeDetailed(
++              id: int.tryParse('${rawNodeJson["id"]}'),
++              title: rawNodeJson["title"]?.toString(),
++              status: rawNodeJson["status"]?.toString(),
++              mean: double.tryParse('${rawNodeJson["mean"]}'),
++              mediaType: rawNodeJson["media_type"]?.toString(),
++              source: rawNodeJson["source"]?.toString(),
++              numEpisodes: int.tryParse('${rawNodeJson["num_episodes"]}'),
++              genres: _parseListSafely<MalGenre>(
++                rawNodeJson["genres"],
++                (value) => MalGenre.fromJson(value),
++                "genres",
++              ),
++              studios: _parseListSafely<AnimeStudio>(
++                rawNodeJson["studios"],
++                (value) => AnimeStudio.fromJson(value),
++                "studios",
++              ),
++            );
++          }
+         }
+-      } catch (e) {}
++      }
++    }
++
++    final MyListStatus resolvedStatus;
++    if (category.equals("manga")) {
++      resolvedStatus = mangaList?.status != null
++          ? mangaList!
++          : node is MangaDetailed && node.myListStatus?.status != null
++              ? node.myListStatus!
++              : mangaList ?? MyMangaListStatus();
++      if (node is MangaDetailed &&
++          resolvedStatus is MyMangaListStatus &&
++          resolvedStatus.status != null) {
++        node.myListStatus = resolvedStatus;
++      }
++    } else {
++      resolvedStatus = animeList?.status != null
++          ? animeList!
++          : node is AnimeDetailed && node.myListStatus?.status != null
++              ? node.myListStatus!
++              : animeList ?? MyAnimeListStatus();
++      if (node is AnimeDetailed &&
++          resolvedStatus is MyAnimeListStatus &&
++          resolvedStatus.status != null) {
++        node.myListStatus = resolvedStatus;
++      }
+     }
+ 
+     return json != null
+         ? BaseNode(
+-            myListStatus: animeList ?? mangaList ?? MyAnimeListStatus(),
+-            content: node ?? Node.fromJson(json["node"]),
++            myListStatus: resolvedStatus,
++            content: node ?? Node.fromJson(rawNodeJson),
+             ranking: Ranking.fromJson(json["ranking"]))
+         : BaseNode();
+   }
+
+diff --git a/lib/widgets/user/stats_screen.dart b/lib/widgets/user/stats_screen.dart
+--- a/lib/widgets/user/stats_screen.dart
++++ b/lib/widgets/user/stats_screen.dart
+@@ -93,6 +93,8 @@ class _UserStatsScreenState extends State<UserStatsScreen> {
+     try {
+       final allUserList =
+           await MalUser.getAllUserList(widget.username, requestedCategory);
++      logDal(
++          '[UserInsights] user=${widget.username} category=$requestedCategory entries=${allUserList.data?.length ?? 0}');
+       insights = UserInsights(allUserList.data ?? [], requestedCategory);
+     } catch (e) {
+       logDal(e);
+
+diff --git a/lib/constant.dart b/lib/constant.dart
+--- a/lib/constant.dart
++++ b/lib/constant.dart
+@@ -407,9 +407,13 @@ void showCustomSheet({
+     context: context,
+     enableDrag: enableDrag,
+     isScrollControlled: isScrollControlled,
++    useSafeArea: true,
+     backgroundColor: color,
+     constraints: constraints,
+-    builder: (context) => Material(color: color, child: child),
++    builder: (context) => SafeArea(
++      top: false,
++      child: Material(color: color, child: child),
++    ),
+   );
+ }
+ 
+@@ -1082,7 +1086,9 @@ Future<dynamic> showContentEditSheet(
+       builder: (context) => Scaffold(
+             backgroundColor: Colors.transparent,
+             resizeToAvoidBottomInset: true,
+-            body: GestureDetector(
++            body: SafeArea(
++              top: false,
++              child: GestureDetector(
+               onTap: () => Navigator.pop(context),
+               behavior: HitTestBehavior.opaque,
+               child: ContentEditWidget(
+@@ -1101,6 +1107,7 @@ Future<dynamic> showContentEditSheet(
+                   if (onUpdate != null) onUpdate(value);
+                 },
+               ),
++              ),
+             ),
+           ));
+ }
+@@ -1173,12 +1180,14 @@ void showUserPage({required BuildContext context, required String username}) {
+   showModalBottomSheet(
+     context: context,
+     isScrollControlled: true,
+-    builder: (context) {
+-      return UserPopSlideOpenPage(
++    useSafeArea: true,
++    builder: (context) => SafeArea(
++      top: false,
++      child: UserPopSlideOpenPage(
+         username: username,
+         isSelf: false,
+-      );
+-    },
++      ),
++    ),
+   );
+ }
+ 
+@@ -1278,19 +1287,24 @@ Widget _spoilerWidget(ExtensionContext c, BuildContext context) {
+           showModalBottomSheet(
+               context: context,
+               isScrollControlled: true,
+-              builder: (context) => ConstrainedBox(
+-                    constraints: BoxConstraints(minHeight: 300),
+-                    child: Material(
+-                      child: SingleChildScrollView(
+-                        child: BbcodeWidget(
+-                          shrinkWrap: false,
+-                          alignCenter:
+-                              (innerHtml ?? "").length > 1000 ? false : true,
+-                          body: "<div> $innerHtml </div>",
+-                        ),
++              useSafeArea: true,
++              builder: (context) => SafeArea(
++                top: false,
++                child: ConstrainedBox(
++                  constraints: BoxConstraints(minHeight: 300),
++                  child: Material(
++                    child: SingleChildScrollView(
++                      child: BbcodeWidget(
++                        shrinkWrap: false,
++                        alignCenter:
++                            (innerHtml ?? "").length > 1000 ? false : true,
++                        body: "<div> $innerHtml </div>",
+                       ),
+                     ),
+-                  ));
++                  ),
++                ),
++              ),
++          );
+         }),
+   );
+ }
+@@ -1448,7 +1462,11 @@ Future<void> openFutureAndNavigate<T>({
+ }) async {
+   showModalBottomSheet(
+     context: context,
+-    builder: (_) => loadingBelowText(text: text),
++    useSafeArea: true,
++    builder: (_) => SafeArea(
++      top: false,
++      child: loadingBelowText(text: text),
++    ),
+   );
+ 
+   try {
+
+diff --git a/lib/pages/animedetailed/media_platforms.dart b/lib/pages/animedetailed/media_platforms.dart
+--- a/lib/pages/animedetailed/media_platforms.dart
++++ b/lib/pages/animedetailed/media_platforms.dart
+@@ -76,9 +76,13 @@ class _AddtionalMediaPlatformsState extends State<AddtionalMediaPlatforms> {
+                 onPressed: () async {
+                   await showModalBottomSheet(
+                       context: context,
+-                      builder: (context) => DetailedLinks(
+-                            categorizedLinks: categorizedLinks,
+-                          ),
++                      useSafeArea: true,
++                      builder: (context) => SafeArea(
++                        top: false,
++                        child: DetailedLinks(
++                          categorizedLinks: categorizedLinks,
++                        ),
++                      ),
+                       shape: RoundedRectangleBorder(
+                           borderRadius:
+                               BorderRadius.vertical(top: Radius.circular(20))));
+
+diff --git a/lib/pages/homepage.dart b/lib/pages/homepage.dart
+--- a/lib/pages/homepage.dart
++++ b/lib/pages/homepage.dart
+@@ -133,31 +133,32 @@ class _HomePageState extends State<HomePage> {
+ 
+   _showGenresModal() => showBottomSheet(
+       context: context,
+-      builder: (_) => Material(
+-            child: SizedBox(
+-              height: 260.0,
+-              child: Column(
+-                children: [
+-                  Padding(
+-                    padding: const EdgeInsets.all(20.0),
+-                    child: Row(
+-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+-                      children: [
+-                        Text(S.of(context).Genres),
+-                        IconButton(
+-                          icon: Icon(Icons.close),
+-                          onPressed: () => Navigator.pop(context),
+-                        )
+-                      ],
+-                    ),
++      builder: (_) => SafeArea(
++        top: false,
++        child: Material(
++          child: SizedBox(
++            height: 260.0,
++            child: Column(
++              children: [
++                Padding(
++                  padding: const EdgeInsets.all(20.0),
++                  child: Row(
++                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
++                    children: [
++                      Text(S.of(context).Genres),
++                      IconButton(
++                        icon: Icon(Icons.close),
++                        onPressed: () => Navigator.pop(context),
++                      )
++                    ],
+                   ),
+-                  AllGenreWidget(
+-                    category: 'anime',
+-                  ),
+-                ],
+-              ),
++                ),
++                AllGenreWidget(category: 'anime'),
++              ],
+             ),
+-          ));
++          ),
++        ),
++      ));
+ 
+   @override
+   Widget build(BuildContext context) {
+
+diff --git a/lib/pages/search/all_genre_widget.dart b/lib/pages/search/all_genre_widget.dart
+--- a/lib/pages/search/all_genre_widget.dart
++++ b/lib/pages/search/all_genre_widget.dart
+@@ -108,9 +108,12 @@ class AllGenreWidget extends StatelessWidget {
+     showModalBottomSheet(
+       context: context,
+       isScrollControlled: true,
+-      builder: (context) => SizedBox(
+-        width: double.infinity,
+-        child: Material(
++      useSafeArea: true,
++      builder: (context) => SafeArea(
++        top: false,
++        child: SizedBox(
++          width: double.infinity,
++          child: Material(
+           child: Padding(
+             padding: const EdgeInsets.all(16.0),
+             child: CustomScrollView(
+@@ -150,6 +153,7 @@ class AllGenreWidget extends StatelessWidget {
+             ),
+           ),
+         ),
++        ),
+       ),
+     );
+   }
+
+diff --git a/lib/widgets/customappbar.dart b/lib/widgets/customappbar.dart
+--- a/lib/widgets/customappbar.dart
++++ b/lib/widgets/customappbar.dart
+@@ -102,9 +102,13 @@ void _onAvatarTap({
+     isScrollControlled: true,
+     useRootNavigator: true,
+     isDismissible: true,
++    useSafeArea: true,
+     context: context,
+-    builder: (context) => AppSideBar(
+-      onUiChange: () => onUiChange != null ? onUiChange() : null,
++    builder: (context) => SafeArea(
++      top: false,
++      child: AppSideBar(
++        onUiChange: () => onUiChange != null ? onUiChange() : null,
++      ),
+     ),
+   );
+ }
+
+diff --git a/lib/widgets/forum/postwidget.dart b/lib/widgets/forum/postwidget.dart
+--- a/lib/widgets/forum/postwidget.dart
++++ b/lib/widgets/forum/postwidget.dart
+@@ -437,19 +437,24 @@ class _PostWidgetState extends State<PostWidget>
+     showModalBottomSheet(
+         context: context,
+         isScrollControlled: true,
+-        builder: (context) => ConstrainedBox(
+-              constraints:
+-                  BoxConstraints(minHeight: 150, minWidth: double.infinity),
+-              child: Material(
+-                child: SingleChildScrollView(
+-                  child: BbcodeWidget(
+-                    shrinkWrap: false,
+-                    alignCenter: true,
+-                    body: "<div> $content </div>",
+-                  ),
++        useSafeArea: true,
++        builder: (context) => SafeArea(
++          top: false,
++          child: ConstrainedBox(
++            constraints:
++                BoxConstraints(minHeight: 150, minWidth: double.infinity),
++            child: Material(
++              child: SingleChildScrollView(
++                child: BbcodeWidget(
++                  shrinkWrap: false,
++                  alignCenter: true,
++                  body: "<div> $content </div>",
+                 ),
+               ),
+-            ));
++            ),
++          ),
++        ),
++    );
+   }
+ 
+   Widget quotePostWidget(
+
+diff --git a/lib/widgets/listsortfilter.dart b/lib/widgets/listsortfilter.dart
+--- a/lib/widgets/listsortfilter.dart
++++ b/lib/widgets/listsortfilter.dart
+@@ -364,14 +364,16 @@ void showSortFilterDisplayModal({
+ }) {
+   showModalBottomSheet(
+     context: context,
+-    builder: (BuildContext context) {
+-      return SortFilterPopup(
++    useSafeArea: true,
++    builder: (BuildContext context) => SafeArea(
++      top: false,
++      child: SortFilterPopup(
+         sortFilterDisplay: sortFilterDisplay,
+         onSortFilterChange: onSortFilterChange,
+         sortFilterOptions: sortFilterOptions,
+         onClose: () => Navigator.pop(context),
+-      );
+-    },
++      ),
++    ),
+   );
+ }
+ 
+
+diff --git a/lib/widgets/search/filtermodal.dart b/lib/widgets/search/filtermodal.dart
+--- a/lib/widgets/search/filtermodal.dart
++++ b/lib/widgets/search/filtermodal.dart
+@@ -543,32 +543,36 @@ class _TextFormFilterState extends State<TextFormFilter> {
+     final value = await showModalBottomSheet(
+         context: context,
+         isScrollControlled: true,
++        useSafeArea: true,
+         builder: (context) {
+-          return Padding(
+-            padding: EdgeInsets.only(
+-              bottom: MediaQuery.of(context).viewInsets.bottom,
+-            ),
+-            child: SizedBox(
+-              height: 400.0,
+-              child: Column(
+-                children: [
+-                  SB.h10,
+-                  Text(S.current.Comments,
+-                      style: Theme.of(context).textTheme.titleMedium),
+-                  SB.h10,
+-                  Expanded(
+-                    child: CustomTextForm(
+-                      value: _controller.text,
+-                      controller: _controller,
+-                      useRow: false,
+-                      fieldName: widget.option.modalField ?? "",
+-                      maxLines: 20,
+-                      onFieldSubmitted: (value) {
+-                        Navigator.pop(context, value);
+-                      },
++          return SafeArea(
++            top: false,
++            child: Padding(
++              padding: EdgeInsets.only(
++                bottom: MediaQuery.of(context).viewInsets.bottom,
++              ),
++              child: SizedBox(
++                height: 400.0,
++                child: Column(
++                  children: [
++                    SB.h10,
++                    Text(S.current.Comments,
++                        style: Theme.of(context).textTheme.titleMedium),
++                    SB.h10,
++                    Expanded(
++                      child: CustomTextForm(
++                        value: _controller.text,
++                        controller: _controller,
++                        useRow: false,
++                        fieldName: widget.option.modalField ?? "",
++                        maxLines: 20,
++                        onFieldSubmitted: (value) {
++                          Navigator.pop(context, value);
++                        },
++                      ),
+                     ),
+-                  ),
+-                ],
++                  ],
++                ),
+               ),
+             ),
+           );
+
+diff --git a/lib/screens/generalsearchscreen.dart b/lib/screens/generalsearchscreen.dart
+--- a/lib/screens/generalsearchscreen.dart
++++ b/lib/screens/generalsearchscreen.dart
+@@ -395,7 +395,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
+           .elementAt(Mal.animeGenres.values.toList().indexOf(_q));
+     } else {
+       id = Mal.mangaGenres.keys
+-          .elementAt(Mal.animeGenres.values.toList().indexOf(_q));
++          .elementAt(Mal.mangaGenres.values.toList().indexOf(_q));
+     }
+ 
+     searchResult = await JikanHelper.getGenre(
