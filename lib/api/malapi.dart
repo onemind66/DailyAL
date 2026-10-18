@@ -100,11 +100,13 @@ class MalApi {
           }
           final id = int.tryParse('${item['node']['id']}');
           if (id == null) continue;
+            final statusJson = item['list_status'] as Map<String, dynamic>;
+            if (statusJson['status'] == null) continue;
+            final updatedAt =
+              DateTime.tryParse(statusJson['updated_at']?.toString() ?? '');
           final status = category == 'anime'
-              ? MyAnimeListStatus.fromJson(item['list_status'])
-              : MyMangaListStatus.fromJson(item['list_status']);
-          if (status.status == null) continue;
-          final updatedAt = status.updatedAt;
+              ? MyAnimeListStatus.fromJson(statusJson)
+              : MyMangaListStatus.fromJson(statusJson);
           final previousUpdatedAt = statusUpdatedAt[id];
           if (!cachedStatuses.containsKey(id) ||
               (updatedAt != null &&
