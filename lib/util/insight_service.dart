@@ -118,7 +118,7 @@ class UserInsights {
 
       if (id != null) {
         if (_idSet.lookup(id) != null) {
-          return;
+          continue;
         } else {
           _idSet.add(id);
         }
@@ -207,7 +207,7 @@ class UserInsights {
           ),
         ),
       );
-      distributionMap[key] = value;
+      distributionMap[key] = _value;
     });
   }
 

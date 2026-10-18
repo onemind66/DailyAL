@@ -110,7 +110,11 @@ class _UserPopSlideOpenPageState extends State<UserPopSlideOpenPage> {
   Widget build(BuildContext context) {
     if (widget.isFullScreen) {
       return Scaffold(
-        body: _customScrollView(_fullScreenScrollController),
+        body: SafeArea(
+          top: true,
+          bottom: true,
+          child: _customScrollView(_fullScreenScrollController),
+        ),
       );
     }
     return NotificationListener<DraggableScrollableNotification>(

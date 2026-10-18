@@ -213,7 +213,7 @@ listStatus(
     } else if (category.equals("manga")) {
       _myListStatus = (dynContent?.myListStatus as MyMangaListStatus);
     }
-    if (_myListStatus?.updatedAt == null) {
+    if (_myListStatus?.status == null) {
       _myListStatus = category.equals("anime")
           ? (dynContent?.content?.myListStatus as MyAnimeListStatus)
           : (dynContent?.content?.myListStatus as MyMangaListStatus);
