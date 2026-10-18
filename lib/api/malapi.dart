@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dailyanimelist/api/credmal.dart';
@@ -15,6 +16,7 @@ import 'package:dal_commons/dal_commons.dart';
 import 'package:dal_commons/dal_commons.dart' as commons;
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class MalApi {
   static const weekdaysOrderMap = {
@@ -59,9 +61,83 @@ class MalApi {
       url +=
           "?fields=id,title,main_picture,alternative_titles,start_date,end_date,synopsis,mean,rank,popularity,num_list_users,num_scoring_users,nsfw,created_at,updated_at,media_type,status,genres,my_list_status,num_episodes,start_season,broadcast,source,average_episode_duration,rating,pictures,background,related_anime,related_manga,recommendations,studios,statistics";
     }
-    return SearchResult.fromJson(
+    final result = SearchResult.fromJson(
         await MalConnect.getContent(url, fromCache: fromCache),
         category: category);
+    await mergeCachedMyListStatus(result.data, category);
+    return result;
+  }
+
+  static Future<void> mergeCachedMyListStatus(
+      List<BaseNode>? nodes, String category) async {
+    if (user.status != AuthStatus.AUTHENTICATED ||
+        !['anime', 'manga'].contains(category) ||
+        nodes == null ||
+        nodes.isEmpty) {
+      return;
+    }
+
+    final preferences = await SharedPreferences.getInstance();
+    final cachePrefix = '${CredMal.myEndPoint}${category}list?';
+    final cachedStatuses = <int, dynamic>{};
+    final statusUpdatedAt = <int, DateTime>{};
+
+    for (final key in preferences.getKeys()) {
+      if (!key.startsWith(cachePrefix)) continue;
+      try {
+        final cachedJson = preferences.getString(key);
+        if (cachedJson == null) continue;
+        final cachedResult = jsonDecode(cachedJson);
+        if (cachedResult is! Map<String, dynamic> ||
+            cachedResult['data'] is! List) {
+          continue;
+        }
+        for (final item in cachedResult['data'] as List) {
+          if (item is! Map<String, dynamic> ||
+              item['node'] is! Map<String, dynamic> ||
+              item['list_status'] is! Map<String, dynamic>) {
+            continue;
+          }
+          final id = int.tryParse('${item['node']['id']}');
+          if (id == null) continue;
+          final status = category == 'anime'
+              ? MyAnimeListStatus.fromJson(item['list_status'])
+              : MyMangaListStatus.fromJson(item['list_status']);
+          if (status.status == null) continue;
+          final updatedAt = status.updatedAt;
+          final previousUpdatedAt = statusUpdatedAt[id];
+          if (!cachedStatuses.containsKey(id) ||
+              (updatedAt != null &&
+                  (previousUpdatedAt == null ||
+                      updatedAt.isAfter(previousUpdatedAt)))) {
+            cachedStatuses[id] = status;
+            if (updatedAt != null) statusUpdatedAt[id] = updatedAt;
+          }
+        }
+      } catch (e) {
+        logDal(e);
+      }
+    }
+
+    if (cachedStatuses.isEmpty) return;
+    for (final baseNode in nodes) {
+      final content = baseNode.content;
+      final id = content?.id;
+      if (id == null) continue;
+      final currentStatus = category == 'anime'
+          ? (content is AnimeDetailed ? content.myListStatus?.status : null)
+          : (content is MangaDetailed ? content.myListStatus?.status : null);
+      if (currentStatus != null || !cachedStatuses.containsKey(id)) continue;
+
+      final cachedStatus = cachedStatuses[id];
+      baseNode.myListStatus = cachedStatus;
+      if (content is AnimeDetailed && cachedStatus is MyAnimeListStatus) {
+        content.myListStatus = cachedStatus;
+      } else if (content is MangaDetailed &&
+          cachedStatus is MyMangaListStatus) {
+        content.myListStatus = cachedStatus;
+      }
+    }
   }
 
   /// Get Next/Previous Animelist Page

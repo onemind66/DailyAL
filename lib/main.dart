@@ -26,6 +26,17 @@ import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter_phoenix/flutter_phoenix.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+class _SystemProxyHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context)
+      ..findProxy = (uri) => HttpClient.findProxyFromEnvironment(
+            uri,
+            environment: Platform.environment,
+          );
+  }
+}
+
 /// Global UserData
 late User user;
 int androidSDKVersion = 0;
@@ -50,6 +61,7 @@ void main() async {
     await dotenv.load(fileName: 'assets/n8TN5qDG22PAuP50Il');
     Environment.i.malClientId = CredMal.clientId;
     WidgetsFlutterBinding.ensureInitialized();
+    if (!kIsWeb) HttpOverrides.global = _SystemProxyHttpOverrides();
     ErrorReporting.init();
     await StreamUtils.i.init();
     if (Platform.isLinux) {

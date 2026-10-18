@@ -36,9 +36,13 @@ class MalConnect {
             HttpHeaders.contentTypeHeader: 'application/json; charset=utf-8'
           });
         }
-        return http
-            .get(Uri.parse(url), headers: headers)
-            .timeout(_retryDuration);
+        return _sendWithAuthRefresh(
+          url,
+          headers,
+          () => http
+              .get(Uri.parse(url), headers: headers)
+              .timeout(_retryDuration),
+        );
       },
       // Retry on SocketException or TimeoutException
       retryIf: (e) {
@@ -47,6 +51,29 @@ class MalConnect {
       },
     );
     return response;
+  }
+
+  static Future<http.Response> _sendWithAuthRefresh(
+    String url,
+    Map<String, String> headers,
+    Future<http.Response> Function() send,
+  ) async {
+    final response = await send();
+    if (!url.startsWith(CredMal.endPoint) ||
+        response.statusCode != 401 ||
+        user.status != AuthStatus.AUTHENTICATED ||
+        !headers.containsKey('Authorization')) {
+      return response;
+    }
+    if (!await MalAuth.refreshToken()) return response;
+
+    final authResponse = user.authResponse;
+    if (authResponse?.accessToken == null || authResponse?.tokenType == null) {
+      return response;
+    }
+    headers['Authorization'] =
+        '${authResponse!.tokenType} ${authResponse.accessToken}';
+    return send();
   }
 
   static Future<http.Response> retryGetNoH(String url) => retryGet(url, Map());
@@ -68,9 +95,12 @@ class MalConnect {
         } catch (e) {
           logDal(e);
         }
-        headers["Authorization"] = user.authResponse!.tokenType! +
-            " " +
-            user.authResponse!.accessToken!;
+        final authResponse = user.authResponse;
+        if (authResponse?.tokenType != null &&
+            authResponse?.accessToken != null) {
+          headers["Authorization"] =
+              '${authResponse!.tokenType} ${authResponse.accessToken}';
+        }
       }
     }
 
@@ -125,9 +155,12 @@ class MalConnect {
           if (MalAuth.checkIfTokenExpired(user.authResponse!)) {
             await MalAuth.refreshToken();
           }
-          headers["Authorization"] = user.authResponse!.tokenType! +
-              " " +
-              user.authResponse!.accessToken!;
+          final authResponse = user.authResponse;
+          if (authResponse?.tokenType != null &&
+              authResponse?.accessToken != null) {
+            headers["Authorization"] =
+                '${authResponse!.tokenType} ${authResponse.accessToken}';
+          }
         } catch (e) {
           logDal(e);
         }
@@ -186,14 +219,19 @@ class MalConnect {
         HttpHeaders.contentTypeHeader: 'application/json; charset=utf-8'
       });
     } else if (useTimeout) {
-      return http
-          .get(Uri.parse(url), headers: headers)
-          .timeout(timeoutDuration!, onTimeout: () {
-        onTimeout();
-        return http.Response('cached', 200);
-      });
+      return _sendWithAuthRefresh(
+        url,
+        headers,
+        () => http
+            .get(Uri.parse(url), headers: headers)
+            .timeout(timeoutDuration!, onTimeout: () {
+          onTimeout();
+          return http.Response('cached', 200);
+        }),
+      );
     } else {
-      return http.get(Uri.parse(url), headers: headers);
+      return _sendWithAuthRefresh(
+          url, headers, () => http.get(Uri.parse(url), headers: headers));
     }
   }
 
@@ -209,8 +247,12 @@ class MalConnect {
       } catch (e) {
         logDal(e);
       }
-      headers["Authorization"] =
-          user.authResponse!.tokenType! + " " + user.authResponse!.accessToken!;
+      final authResponse = user.authResponse;
+        if (authResponse?.tokenType != null &&
+          authResponse?.accessToken != null) {
+        headers["Authorization"] =
+            '${authResponse!.tokenType} ${authResponse.accessToken}';
+      }
     }
     return headers;
   }
@@ -234,14 +276,27 @@ class MalConnect {
       } catch (e) {
         logDal(e);
       }
-      headers["Authorization"] =
-          user.authResponse!.tokenType! + " " + user.authResponse!.accessToken!;
+      final authResponse = user.authResponse;
+        if (authResponse?.tokenType != null &&
+          authResponse?.accessToken != null) {
+        headers["Authorization"] =
+            '${authResponse!.tokenType} ${authResponse.accessToken}';
+      }
     }
-    return http.put(Uri.parse(url), body: body, headers: headers);
+    return _sendWithAuthRefresh(
+      url,
+      headers,
+      () => http.put(Uri.parse(url), body: body, headers: headers),
+    );
   }
 
   static Future<http.Response> delete(String url) async {
-    return http.delete(Uri.parse(url), headers: await _headers);
+    final headers = await _headers;
+    return _sendWithAuthRefresh(
+      url,
+      headers,
+      () => http.delete(Uri.parse(url), headers: headers),
+    );
   }
 
   static Future<SearchResult?> htmlListPage(

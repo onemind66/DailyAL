@@ -18,6 +18,8 @@ import 'package:http/http.dart' as http;
 import '../../constant.dart';
 
 class MalAuth {
+  static Future<bool>? _refreshingToken;
+
   String _chars =
       'AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz1234567890-._~';
   Random _rnd = Random.secure();
@@ -48,7 +50,13 @@ class MalAuth {
     return expiryDate.isBefore(DateTime.now());
   }
 
-  static Future<void> refreshToken() async {
+  static Future<bool> refreshToken() {
+    return _refreshingToken ??= _refreshToken().whenComplete(() {
+      _refreshingToken = null;
+    });
+  }
+
+  static Future<bool> _refreshToken() async {
     String url = CredMal.otokenEndPoint;
 
     Map<String, String> body = {
@@ -61,13 +69,25 @@ class MalAuth {
 
     try {
       var response = await httpPostAsync(url, body: body);
+      if (response.statusCode != 200) return false;
       AuthResponse authResponse =
           AuthResponse.fromJson(jsonDecode(response.body));
+      if (authResponse.accessToken == null) return false;
+      authResponse = AuthResponse(
+        accessToken: authResponse.accessToken,
+        expiresIn: authResponse.expiresIn,
+        tokenType: authResponse.tokenType,
+        createdTime: authResponse.createdTime,
+        refreshToken:
+            authResponse.refreshToken ?? user.authResponse?.refreshToken,
+      );
       user.authResponse = authResponse;
       user.status = AuthStatus.AUTHENTICATED;
-      user.setIntance();
+      await user.setIntance();
+      return true;
     } catch (e) {
       logDal(e);
+      return false;
     }
   }
 

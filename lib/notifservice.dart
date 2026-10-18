@@ -136,7 +136,11 @@ class NotificationService {
     }
   }
 
-  void scheduledNotifcation() async {
+  Future<void> scheduledNotifcation() async {
+    if (!await hasConnection()) {
+      logDal('Skipping notification sync while offline');
+      return;
+    }
     var validMyListStatus = ["watching", "plan_to_watch"];
     var nowDate = DateTime.now();
     if (user.pref.notifPref.daySubscribed != null) {

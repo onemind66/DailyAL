@@ -435,6 +435,10 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
       } else {
         if (category.equals("all")) {
           searchResult = await MalApi.searchAllCategories(query);
+            final allData = (searchResult as AllSearchResult).allData ??
+              <String, List<BaseNode>?>{};
+          await MalApi.mergeCachedMyListStatus(allData['anime'], 'anime');
+          await MalApi.mergeCachedMyListStatus(allData['manga'], 'manga');
           generateAllSectionList();
           if (mounted)
             setState(() {
