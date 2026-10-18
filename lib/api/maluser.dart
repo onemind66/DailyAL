@@ -153,7 +153,9 @@ class MalUser {
     }
 
     return SearchResult.fromJson(
-        await MalConnect.getContent(url, fromCache: fromCache));
+      await MalConnect.getContent(url, fromCache: fromCache),
+      category: category,
+    );
   }
 
   /// Get User Anime Status
@@ -305,18 +307,26 @@ class MalUser {
     if (!nullOrEmpty(firstResult.data)) {
       allNodes.addAll(firstResult.data?.toList() ?? []);
     }
-    var currentCount = firstResult.data?.length ?? 0;
     var nextUrl = firstResult.paging?.next;
-    while (nextUrl != null && nextUrl.isNotBlank && currentCount == limit) {
+    final visitedUrls = <String>{url};
+    // Follow paging.next until it is exhausted. MAL can return fewer than the
+    // requested limit on an intermediate page; using page length as a stop
+    // condition silently truncates larger lists.
+    while (nextUrl != null &&
+        nextUrl.isNotBlank &&
+        visitedUrls.add(nextUrl)) {
       final nextResult = SearchResult.fromJson(
           await MalConnect.getContent(nextUrl,
               retryOnFail: false, fromCache: fromCache),
           category: category);
-      nextUrl = nextResult.paging?.next;
       final list = nextResult.data?.toList() ?? [];
       allNodes.addAll(list);
-      currentCount = list.length;
+      nextUrl = nextResult.paging?.next;
+      logDal(
+          '[UserList] category=$category fetched=${allNodes.length} pageItems=${list.length} hasNext=${nextUrl != null}');
     }
+    logDal(
+        '[UserList] category=$category total=${allNodes.length} fromCache=$fromCache url=$url');
     return SearchResult(data: allNodes);
   }
 }

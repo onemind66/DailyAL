@@ -360,8 +360,12 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
   }
 
   Future<void> getSuggestedContent({bool fromCache = false}) async {
-    searchResult =
-        await MalUser.getContentSuggestions(fromCache: fromCache, limit: 31);
+    searchResult = await MalUser.getContentSuggestions(
+      fromCache: fromCache,
+      limit: 31,
+      category: category,
+      fields: [MalApi.fieldsForCategory(category)],
+    );
     results = searchResult?.data ?? [];
   }
 
@@ -372,7 +376,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
       category: category,
       limit: 31,
       fromCache: fromCache,
-      fields: [MalApi.listDetailedFields, 'my_list_status'],
+      fields: [MalApi.fieldsForCategory(category)],
     );
     results = searchResult?.data ?? [];
   }
@@ -510,9 +514,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
                 category: category,
                 fromCache: fromCache,
                 limit: 31,
-                fields: [
-                  "num_episodes,broadcast,alternative_titles,start_date,status,mean,num_list_users,genres,media_type,num_volumes,my_list_status"
-                ]);
+                fields: [MalApi.fieldsForCategory(category)]);
           }
         }
         if (stage != SearchStage.started) {

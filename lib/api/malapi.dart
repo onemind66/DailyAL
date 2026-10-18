@@ -29,8 +29,16 @@ class MalApi {
     'sunday': 7
   };
 
-  static const listDetailedFields =
-      "num_episodes,broadcast,start_date,alternative_titles,status,mean,num_list_users,genres,media_type,num_volumes,my_list_status";
+  static const animeDetailedFields =
+      "num_episodes,broadcast,start_date,alternative_titles,status,mean,num_list_users,genres,media_type,my_list_status";
+
+  static const mangaDetailedFields =
+      "num_chapters,num_volumes,start_date,alternative_titles,status,mean,num_list_users,genres,media_type,authors{first_name,last_name},my_list_status";
+
+  static const listDetailedFields = animeDetailedFields;
+
+  static String fieldsForCategory(String category) =>
+      category == "manga" ? mangaDetailedFields : animeDetailedFields;
 
   static const userMangaFields =
       'my_list_status{is_rewatching,is_rereading,num_times_rewatched,num_times_reread,priority,rewatch_value,reread_value,start_date,finish_date,tags,comments}';
@@ -59,7 +67,7 @@ class MalApi {
           fields.reduce((value, element) => (value + "," + element));
     } else {
       url +=
-          "?fields=id,title,main_picture,alternative_titles,start_date,end_date,synopsis,mean,rank,popularity,num_list_users,num_scoring_users,nsfw,created_at,updated_at,media_type,status,genres,my_list_status,num_episodes,start_season,broadcast,source,average_episode_duration,rating,pictures,background,related_anime,related_manga,recommendations,studios,statistics";
+          "&fields=id,title,main_picture,alternative_titles,start_date,end_date,synopsis,mean,rank,popularity,num_list_users,num_scoring_users,nsfw,created_at,updated_at,media_type,status,genres,my_list_status,num_episodes,start_season,broadcast,source,average_episode_duration,rating,pictures,background,related_anime,related_manga,recommendations,studios,statistics";
     }
     final result = SearchResult.fromJson(
         await MalConnect.getContent(url, fromCache: fromCache),
