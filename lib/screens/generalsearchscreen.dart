@@ -183,8 +183,11 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
     if (user.status != AuthStatus.AUTHENTICATED) return;
     if (!['anime', 'manga'].contains(category)) return;
     try {
+      // Search must not block on downloading the user's entire MAL list.
+      // The query result already requests my_list_status; merge only data
+      // that is cached and let list syncing happen outside the search spinner.
       await MalApi.mergeCachedMyListStatus(results, category,
-          fetchIfMissing: true);
+          fetchIfMissing: false);
     } catch (e) {
       logDal(e);
     }
