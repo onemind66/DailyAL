@@ -93,6 +93,8 @@ class _UserStatsScreenState extends State<UserStatsScreen> {
     try {
       final allUserList =
           await MalUser.getAllUserList(widget.username, requestedCategory);
+      logDal(
+          '[UserInsights] user=${widget.username} category=$requestedCategory entries=${allUserList.data?.length ?? 0}');
       insights = UserInsights(allUserList.data ?? [], requestedCategory);
     } catch (e) {
       logDal(e);
