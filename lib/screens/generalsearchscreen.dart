@@ -395,7 +395,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
           .elementAt(Mal.animeGenres.values.toList().indexOf(_q));
     } else {
       id = Mal.mangaGenres.keys
-          .elementAt(Mal.animeGenres.values.toList().indexOf(_q));
+          .elementAt(Mal.mangaGenres.values.toList().indexOf(_q));
     }
 
     searchResult = await JikanHelper.getGenre(
