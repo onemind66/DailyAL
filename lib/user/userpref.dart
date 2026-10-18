@@ -4,6 +4,7 @@ import 'package:dailyanimelist/screens/contentdetailedscreen.dart';
 import 'package:dailyanimelist/screens/generalsearchscreen.dart';
 import 'package:dailyanimelist/user/anime_manga_pref.dart';
 import 'package:dailyanimelist/user/hompagepref.dart';
+import 'package:dailyanimelist/util/file_logger.dart';
 import 'package:dal_commons/commons.dart';
 import 'package:flutter/services.dart';
 
@@ -47,6 +48,7 @@ class UserPreferences {
   LinkType preferredLinkType;
   bool allowYoutubePlayer;
   String preferredFont;
+  bool enableLog;
   UserPreferences({
     required this.firstTime,
     required this.homePageTileSize,
@@ -87,7 +89,10 @@ class UserPreferences {
     required this.preferredLinkType,
     required this.allowYoutubePlayer,
     required this.preferredFont,
-  });
+    this.enableLog = false,
+  }) {
+    DailyALFileLogger.configure(enabled: enableLog);
+  }
 
   factory UserPreferences.fromJson(Map<String, dynamic>? json) {
     List<int>? _cacheUpdateFrequency;
@@ -262,6 +267,7 @@ class UserPreferences {
             allowYoutubePlayer: json['allowYoutubePlayer'] ?? false,
             showAnimeMangaCard: json['showAnimeMangaCard'] ?? false,
             preferredFont: json['preferredFont'] ?? 'Poppins',
+            enableLog: json['enableLog'] ?? false,
             animeMangaPagePreferences: _animeMangaPagePreferences ??
                 AnimeMangaPagePreferences.defaultObject())
         : UserPreferences(
@@ -348,6 +354,7 @@ class UserPreferences {
       'allowYoutubePlayer': allowYoutubePlayer,
       'preferredLinkType': preferredLinkType.name,
       'preferredFont': preferredFont,
+      'enableLog': enableLog,
     };
   }
 }

@@ -7,6 +7,7 @@ import 'package:dailyanimelist/pages/settings/optiontile.dart';
 import 'package:dailyanimelist/screens/contentdetailedscreen.dart';
 import 'package:dailyanimelist/screens/generalsearchscreen.dart';
 import 'package:dailyanimelist/util/responsive_helper.dart';
+import 'package:dailyanimelist/util/file_logger.dart';
 import 'package:dailyanimelist/widgets/avatarwidget.dart';
 import 'package:dotted_border/dotted_border.dart';
 import 'package:line_icons/line_icons.dart';
@@ -276,6 +277,18 @@ class _UserPrefSettingsState extends State<UserPrefSettings> {
               onToggled: (value) => changeShowAiringInfo(value),
             ),
           ),
+          OptionTile(
+            text: 'Log Diagnostik',
+            iconData: Icons.bug_report_outlined,
+            multiLine: true,
+            desc:
+                'Simpan log diagnostik per sesi. Jika akses penyimpanan umum ditolak, log disimpan di folder aplikasi.',
+            onPressed: () => changeEnableLog(!user.pref.enableLog),
+            trailing: ToggleButton(
+              toggleValue: user.pref.enableLog,
+              onToggled: (value) => changeEnableLog(value),
+            ),
+          ),
           if (user.pref.userchart != null)
             Accordion(
               isOpen: colorOptions,
@@ -414,6 +427,22 @@ class _UserPrefSettingsState extends State<UserPrefSettings> {
         ),
       ),
     );
+  }
+
+  Future<void> changeEnableLog(bool value) async {
+    user.pref.enableLog = value;
+    final rootDirectoryGranted = await DailyALFileLogger.setEnabled(
+      value,
+      requestRootPermission: value,
+    );
+    await user.setIntance();
+    if (!mounted) return;
+    setState(() {});
+    if (value) {
+      showToast(rootDirectoryGranted
+          ? 'Log aktif: /storage/emulated/0/dailyal/'
+          : 'Log aktif; akses root tidak tersedia. Log disimpan di folder aplikasi.');
+    }
   }
 
   void changeAutoTranslate(bool value) async {

@@ -21,15 +21,22 @@ class LogConfig {
 
 final dalLogConfig = LogConfig();
 
+typedef LogDalFileWriter = void Function(String line);
+
+/// Optional file sink registered by the app. File output does not depend on
+/// console debug mode, and logging errors must never break the application.
+LogDalFileWriter? logDalFileWriter;
+
 /// LOG
 void logDal(dynamic message) {
+  final line = '${DateTime.now().toIso8601String()}  ${message ?? "null"}';
   if (dalLogConfig.debugMode) {
-    final time = DateTime.now().toIso8601String();
-    if (message == null) {
-      print('$time  null');
-    } else {
-      print('$time  $message');
-    }
+    print(line);
+  }
+  try {
+    logDalFileWriter?.call(line);
+  } catch (_) {
+    // A diagnostic sink must never throw into application code.
   }
 }
 
