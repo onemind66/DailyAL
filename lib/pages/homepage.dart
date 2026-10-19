@@ -196,11 +196,10 @@ class _HomePageState extends State<HomePage> {
           padding: ResponsiveHelper.getContentPadding(context),
           sliver: contentSliverBuilder(),
         ),
-        SliverToBoxAdapter(child: AmeoRecommendationSection()),
         SliverToBoxAdapter(child: SB.h80)
       ];
     }
-    return [contentSliverBuilder(), SliverToBoxAdapter(child: AmeoRecommendationSection()), SliverToBoxAdapter(child: SB.h80)];
+    return [contentSliverBuilder(), SliverToBoxAdapter(child: SB.h80)];
   }
 
   SliverLayoutBuilder _buildAppBar([bool isTablet = false]) {
@@ -307,7 +306,9 @@ class _ContentHomeWidgetState extends State<ContentHomeWidget>
   void initState() {
     super.initState();
     apiPref = widget.apiPref;
-    getData();
+    if (apiPref.contentType != HomePageType.ameo_recommendation) {
+      getData();
+    }
   }
 
   @override
@@ -318,7 +319,9 @@ class _ContentHomeWidgetState extends State<ContentHomeWidget>
       setState(() {
         content = null;
         apiPref = widget.apiPref;
-        getData(forceUpdate);
+        if (apiPref.contentType != HomePageType.ameo_recommendation) {
+          getData(forceUpdate);
+        }
       });
     }
   }
@@ -335,6 +338,9 @@ class _ContentHomeWidgetState extends State<ContentHomeWidget>
   @override
   // ignore: must_call_super
   Widget build(BuildContext context) {
+    if (apiPref.contentType == HomePageType.ameo_recommendation) {
+      return AmeoRecommendationSection(title: HomePageUtils().titleBuilder(apiPref, context, true));
+    }
     if (!apiPref.value.authOnly || user.status == AuthStatus.AUTHENTICATED) {
       if (content == null) {
         return _loadingWidget;

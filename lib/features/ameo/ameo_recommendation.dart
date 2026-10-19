@@ -23,7 +23,9 @@ import 'package:url_launcher/url_launcher.dart';
 
 /// Isolated Ameo/Sprout client and UI; legacy DailyAL recommendation code is untouched.
 class AmeoRecommendationSection extends StatefulWidget {
-  const AmeoRecommendationSection({Key? key}) : super(key: key);
+  final String? title;
+
+  const AmeoRecommendationSection({Key? key, this.title}) : super(key: key);
 
   @override
   State<AmeoRecommendationSection> createState() => _AmeoRecommendationSectionState();
@@ -86,7 +88,7 @@ class _AmeoRecommendationSectionState extends State<AmeoRecommendationSection> {
             children: [
               Expanded(
                 child: Text(
-                  'Rekomendasi Ameo',
+                  widget.title ?? 'Rekomendasi Ameo',
                   style: theme.textTheme.titleLarge,
                 ),
               ),

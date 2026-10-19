@@ -98,6 +98,8 @@ class HomePageUtils {
         );
       case HomePageType.news:
         return DalApi.i.searchFeaturedArticles(category: 'news', tag: 'all');
+      case HomePageType.ameo_recommendation:
+        return null;
       default:
     }
   }
@@ -236,6 +238,9 @@ class HomePageUtils {
         break;
       case HomePageType.news:
         title = ss.News;
+        break;
+      case HomePageType.ameo_recommendation:
+        title = 'Rekomendasi Ameo';
         break;
       default:
     }

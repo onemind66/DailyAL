@@ -15,7 +15,8 @@ enum HomePageType {
   seasonal_anime,
   sugg_anime,
   user_list,
-  news
+  news,
+  ameo_recommendation
 }
 
 enum EndPointType { mal, jikan, html, dal }

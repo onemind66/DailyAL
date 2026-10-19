@@ -242,7 +242,8 @@ class _HomePageEditPreferenceState extends State<HomePageEditPreference> {
     HomePageType.seasonal_anime: 'Seasonal Anime',
     HomePageType.sugg_anime: S.current.suggested_anime,
     HomePageType.user_list: 'User List',
-    HomePageType.news: S.current.News
+    HomePageType.news: S.current.News,
+    HomePageType.ameo_recommendation: 'Ameo Recommendation'
   };
   List<String> sortTypeOptions = [
     S.current.None,

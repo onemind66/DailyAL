@@ -26,4 +26,5 @@ const _$HomePageTypeEnumMap = {
   HomePageType.sugg_anime: 'sugg_anime',
   HomePageType.user_list: 'user_list',
   HomePageType.news: 'news',
+  HomePageType.ameo_recommendation: 'ameo_recommendation',
 };
