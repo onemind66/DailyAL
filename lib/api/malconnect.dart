@@ -22,11 +22,21 @@ class MalConnect {
 
   static Future<http.Response> retryGet(
     String url,
-    Map<String, String> headers,
-  ) async {
+    Map<String, String> headers, {
+    int maxAttempts = 8,
+    bool retryClientException = false,
+  }) async {
     final isDalLocal = url.startsWith('http://localhost:8080');
-    final response = await _options.retry(
-      // Make a GET request
+    final options = maxAttempts == 8 && !retryClientException
+        ? _options
+        : RetryOptions(
+            maxAttempts: maxAttempts,
+            delayFactor: const Duration(seconds: 1),
+            maxDelay: const Duration(seconds: 2),
+            randomizationFactor: 0,
+          );
+    var attempt = 1;
+    final response = await options.retry(
       () async {
         if (isDalLocal) {
           var value = await HandlerCore()
@@ -44,10 +54,15 @@ class MalConnect {
               .timeout(_retryDuration),
         );
       },
-      // Retry on SocketException or TimeoutException
       retryIf: (e) {
-        logDal('retrying... on $e');
-        return e is SocketException || e is TimeoutException;
+        final shouldRetry = e is SocketException ||
+            e is TimeoutException ||
+            (retryClientException && e is http.ClientException);
+        if (shouldRetry && attempt < maxAttempts) {
+          logDal('Retrying HTTP GET (attempt ${attempt + 1}/$maxAttempts) after ${e.runtimeType}');
+        }
+        attempt++;
+        return shouldRetry;
       },
     );
     return response;
