@@ -137,17 +137,23 @@ class NotificationService {
   }
 
   Future<void> scheduledNotifcation() async {
-    if (!await hasConnection()) {
-      logDal('Skipping notification sync while offline');
+    final nowDate = DateTime.now();
+    final notifPref = user.pref.notifPref;
+
+    // Turning both notification categories off must remove previously scheduled
+    // reminders even when the device is offline.
+    if (!notifPref.onWatchingListUpdated &&
+        !notifPref.onPTWGoesToWatching) {
+      await _cancelStaleScheduledNotifications(const <int>{});
       return;
     }
-    var validMyListStatus = ["watching", "plan_to_watch"];
-    var nowDate = DateTime.now();
-    if (user.pref.notifPref.daySubscribed != null) {
-      if (nowDate.difference(user.pref.notifPref.daySubscribed!).inDays < 1) {
-        return;
-      }
+
+    if (!await hasConnection()) {
+      logDal('Skipping notification sync while offline; keeping existing reminders');
+      return;
     }
+
+    const validMyListStatus = ["watching", "plan_to_watch"];
     SearchResult? seasonResult;
     Map<int, ScheduleData>? scheduleData;
     try {
@@ -174,9 +180,12 @@ class NotificationService {
     if (seasonResult?.data == null) return;
     scheduleData ??= {};
 
+    final expectedNotificationIds = <int>{};
+
     for (var baseNode in seasonResult!.data!) {
       var node = baseNode.content;
-      node!.title = getNodeTitle(node);
+      if (node == null || node.id == null) continue;
+      node.title = getNodeTitle(node);
       if (node.myListStatus is MyAnimeListStatus) {
         var myListStatus = node?.myListStatus as MyAnimeListStatus;
         if (myListStatus?.status == null) {
@@ -207,8 +216,22 @@ class NotificationService {
         }
 
         if (scheduleData.containsKey(node.id)) {
-          _scheduleUsingLiveChart(
-            scheduleData[node.id]!,
+          final liveSchedule = scheduleData[node.id]!;
+          final timestamp = liveSchedule.timestamp;
+          if (timestamp == null) {
+            logDal("Missing schedule timestamp for ${node.title}");
+            continue;
+          }
+
+          final nextDate = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
+          if (!nextDate.isAfter(nowDate)) {
+            logDal("Skipping expired schedule for ${node.title}");
+            continue;
+          }
+
+          expectedNotificationIds.add(2100 + node.id!);
+          await _scheduleUsingLiveChart(
+            liveSchedule,
             myListStatus,
             node,
             nowDate,
@@ -221,11 +244,50 @@ class NotificationService {
       }
     }
 
+    // Only mark the sync timestamp after the API data was successfully loaded
+    // and pending reminders have been reconciled.
+    await _cancelStaleScheduledNotifications(expectedNotificationIds);
     user.pref.notifPref.daySubscribed = nowDate;
-    user.setIntance();
+    await user.setIntance();
   }
 
-  void _scheduleUsingLiveChart(
+  Future<void> _cancelStaleScheduledNotifications(
+      Set<int> expectedNotificationIds) async {
+    if (Platform.isLinux) {
+      // Linux notifications are shown through a timer/native overlay and are
+      // not exposed as scheduled requests by flutter_local_notifications.
+      return;
+    }
+
+    try {
+      final pending = await flutterLocalNotificationsPlugin
+          .pendingNotificationRequests();
+
+      for (final request in pending) {
+        // This service uses id = serviceId * 100 + MAL id (serviceId 21).
+        // Check the payload as well, so unrelated notifications are untouched.
+        if (request.payload == null) continue;
+
+        try {
+          final payload = jsonDecode(request.payload!);
+          if (payload is! Map<String, dynamic>) continue;
+          final nodeId = payload['id'];
+          if (nodeId is! int || request.id != 2100 + nodeId) continue;
+          if (expectedNotificationIds.contains(request.id)) continue;
+
+          await flutterLocalNotificationsPlugin.cancel(id: request.id);
+          logDal('Cancelled stale anime reminder id=${request.id}, malId=$nodeId');
+        } catch (e) {
+          // Do not cancel requests whose payload cannot be safely identified.
+          logDal('Unable to inspect pending notification id=${request.id}: $e');
+        }
+      }
+    } catch (e) {
+      logDal('Failed to reconcile pending anime notifications: $e');
+    }
+  }
+
+  Future<void> _scheduleUsingLiveChart(
     ScheduleData scheduleData,
     MyAnimeListStatus myListStatus,
     Node node,
@@ -238,7 +300,7 @@ class NotificationService {
     var nextDate =
         DateTime.fromMillisecondsSinceEpoch(scheduleData.timestamp! * 1000);
 
-    showNotification(
+    await showNotification(
       serviceId: 21,
       title: title,
       body: body,
@@ -251,7 +313,7 @@ class NotificationService {
   static final iconPath =
       'https://play-lh.googleusercontent.com/ZR5oY99qg9mdL9EGDlP3uKDeu0icE3wCGFor3IaAL0xVXXXYQciXavnUVvXFzcQx59w=w240-h480-rw';
 
-  void showNotification({
+  Future<void> showNotification({
     int episode = 1,
     int serviceId = 21,
     Node? node,
