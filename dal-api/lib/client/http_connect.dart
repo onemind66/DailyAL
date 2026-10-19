@@ -43,7 +43,7 @@ class HttpConnect {
           'content-type=${response.headers['content-type'] ?? 'unknown'}; '
           'body=$body';
       logDal(message);
-      throw HttpException(message, Uri.parse(url));
+      throw HttpException(message, uri: Uri.parse(url));
     }
     final decoded = jsonDecode(response.body);
     if (decoded is! Map<String, dynamic>) {
