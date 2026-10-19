@@ -5,8 +5,13 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dailyanimelist/screens/contentdetailedscreen.dart';
 import 'package:dailyanimelist/main.dart';
+import 'package:dailyanimelist/api/malapi.dart';
 import 'package:dailyanimelist/api/maluser.dart';
 import 'package:dailyanimelist/user/user.dart';
+import 'package:dailyanimelist/user/hompagepref.dart';
+import 'package:dailyanimelist/util/responsive_helper.dart';
+import 'package:dailyanimelist/widgets/loading/loadingcard.dart';
+import 'package:dailyanimelist/widgets/shimmecolor.dart';
 import 'package:dailyanimelist/widgets/user/contentlistwidget.dart';
 import 'package:dailyanimelist/enums.dart';
 import 'package:dal_commons/dal_commons.dart';
@@ -60,50 +65,89 @@ class _AmeoRecommendationSectionState extends State<AmeoRecommendationSection> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(top: 18, bottom: 8),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    final tile = tileMap.tryAt(user.pref.homePageTileSize)!;
+    final cardHeight = tile.containerHeight;
+    final cardWidth = cardHeight * (2 / 3);
+    final horizontalPadding =
+        ResponsiveHelper.isTabletOrLarger(context) ? 0.0 : 15.0;
+    final animeNodes = items
+        .take(12)
+        .map((item) => item.dailyAlNode)
+        .whereType<BaseNode>()
+        .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SB.h15,
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 15),
-          child: Row(children: [
-            Expanded(child: Text('Rekomendasi Ameo', style: theme.textTheme.titleLarge)),
-            IconButton(tooltip: 'Semua rekomendasi dan pengaturan', onPressed: openSettings, icon: const Icon(Icons.arrow_forward)),
-          ]),
+          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Rekomendasi Ameo',
+                  style: theme.textTheme.titleLarge,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Semua rekomendasi dan pengaturan',
+                onPressed: openSettings,
+                icon: const Icon(Icons.arrow_forward),
+              ),
+            ],
+          ),
         ),
+        SB.h15,
         if (username.isEmpty)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 15),
-            child: OutlinedButton.icon(onPressed: openSettings, icon: const Icon(Icons.tune), label: const Text('Atur username MyAnimeList')),
+            padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+            child: OutlinedButton.icon(
+              onPressed: openSettings,
+              icon: const Icon(Icons.tune),
+              label: const Text('Atur username MyAnimeList'),
+            ),
           )
         else if (loading)
-          const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()))
-        else if (items.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
-            child: Row(children: [
-              Expanded(child: Text(error ?? 'Belum ada rekomendasi.')),
-              IconButton(onPressed: () => load(force: true), icon: const Icon(Icons.refresh)),
-            ]),
-          )
-        else
-          SizedBox(
-            height: 225,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 15),
-              itemCount: items.length > 12 ? 12 : items.length,
-              itemBuilder: (context, index) => _AmeoAnimeCard(
-                anime: items[index],
-                width: 116,
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ContentDetailedScreen(id: items[index].id))),
+          ShimmerColor(
+            Container(
+              height: cardHeight,
+              child: ListView.builder(
+                padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                itemCount: 10,
+                scrollDirection: Axis.horizontal,
+                itemBuilder: (context, index) =>
+                    LoadingCard(height: cardHeight, width: cardWidth),
               ),
             ),
+          )
+        else if (animeNodes.isEmpty)
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+            child: Row(
+              children: [
+                Expanded(child: Text(error ?? 'Belum ada rekomendasi.')),
+                IconButton(
+                  onPressed: () => load(force: true),
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+          )
+        else
+          horizontalList(
+            category: 'anime',
+            items: animeNodes,
+            padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
           ),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 15),
-          child: Text('Ditenagai Sprout oleh Ameobea', style: theme.textTheme.bodySmall),
+          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          child: Text(
+            'Ditenagai Sprout oleh Ameobea',
+            style: theme.textTheme.bodySmall,
+          ),
         ),
-      ]),
+      ],
     );
   }
 }
@@ -251,16 +295,6 @@ class _AmeoRecommendationPageState extends State<AmeoRecommendationPage> {
 }
 
 
-class _AmeoAnimeCard extends StatelessWidget {
-  final _AmeoAnime anime; final double width; final VoidCallback? onTap;
-  const _AmeoAnimeCard({required this.anime, required this.width, this.onTap});
-  @override
-  Widget build(BuildContext context) => SizedBox(width: width, child: Card(child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(12), child: Padding(padding: const EdgeInsets.all(8), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    Expanded(child: anime.image.isEmpty ? const Center(child: Icon(Icons.movie_outlined)) : CachedNetworkImage(imageUrl: anime.image, fit: BoxFit.cover, width: double.infinity)),
-    const SizedBox(height: 6), Text(anime.title, maxLines: 2, overflow: TextOverflow.ellipsis),
-  ])))));
-}
-class _AmeoDailyALNode { final dynamic content; const _AmeoDailyALNode(this.content); }
 class _AmeoContributor {
   final int id; final String title; final double? userRating; final double? ratingDelta;
   const _AmeoContributor({required this.id, required this.title, this.userRating, this.ratingDelta});
@@ -279,14 +313,16 @@ class _AmeoRecommendationEntryState extends State<_AmeoRecommendationEntry> {
       if (anime.dailyAlNode != null)
         ContentAllWidget(
           dynContent: anime.dailyAlNode,
-          myListStatus: null,
+          myListStatus: listStatus(anime.dailyAlNode, 'anime'),
           index: widget.index,
           category: 'anime',
           aspectRatio: 2.35,
-          imageAspectRatio: .55,
+          imageAspectRatio: .6,
           showImage: true,
-          showEdit: false,
-          showStatus: false,
+          showEdit: true,
+          showStatus: true,
+          updateCacheOnEdit: true,
+          onContentUpdate: () {},
           showBackgroundImage: false,
         )
       else
@@ -340,15 +376,17 @@ class _AmeoRecommendationEntryState extends State<_AmeoRecommendationEntry> {
 }
 class _AmeoAnime {
   final int id; final String title; final String image; final double? score;
-  final dynamic dailyAlNode; final List<_AmeoContributor> contributors;
+  final BaseNode? dailyAlNode; final List<_AmeoContributor> contributors;
   const _AmeoAnime({required this.id, required this.title, required this.image, this.score, this.dailyAlNode, this.contributors = const []});
   factory _AmeoAnime.fromJson(int id, Map<String, dynamic> json, dynamic rec, {Map<int, Map<String, dynamic>>? allMetadata, List<dynamic> rawContributors = const []}) {
     final picture = json['main_picture'];
     final image = picture is Map ? (picture['large'] ?? picture['medium'] ?? '').toString() : '';
     final title = (json['title'] ?? json['title_english'] ?? 'Anime #$id').toString();
     final rawScore = rec is Map ? (rec['score'] ?? rec['predictedScore'] ?? rec['predicted_score']) : null;
-    dynamic node;
-    try { node = _AmeoDailyALNode(AnimeDetailed.fromJson(<String, dynamic>{...json, 'id': id})); } catch (_) {}
+    final BaseNode node = BaseNode.fromJson(
+      <String, dynamic>{'node': <String, dynamic>{...json, 'id': id}},
+      category: 'anime',
+    );
     final contributors = <_AmeoContributor>[];
     for (final raw in rawContributors) {
       if (raw is! Map) continue;
@@ -387,7 +425,11 @@ class _AmeoClient {
     final prefs = await SharedPreferences.getInstance();
     final cacheKey = 'ameo_cache_' + base64Url.encode(utf8.encode(username + '|' + jsonEncode(settings.toJson())));
     final cached = prefs.getString(cacheKey); final cachedAt = prefs.getInt(cacheKey + '_at') ?? 0;
-    if (!force && cached != null && DateTime.now().millisecondsSinceEpoch - cachedAt < ttl.inMilliseconds) return decode(jsonDecode(cached) as Map<String, dynamic>);
+    if (!force && cached != null && DateTime.now().millisecondsSinceEpoch - cachedAt < ttl.inMilliseconds) {
+      final cachedItems = decode(jsonDecode(cached) as Map<String, dynamic>);
+      await _mergeCachedListStatuses(cachedItems);
+      return cachedItems;
+    }
     final watch = Stopwatch()..start(); var phase = 'request'; var statusCode = 0; var contentType = ''; var responseBody = '';
     try {
       final response = await http.post(
@@ -420,10 +462,11 @@ class _AmeoClient {
       phase = 'json_decode'; final decoded = jsonDecode(response.body);
       if (decoded is! Map<String, dynamic>) throw const FormatException('Invalid Ameo response root');
       phase = 'recommendation_decode'; final result = decode(decoded);
+      await _mergeCachedListStatuses(result);
       await prefs.setString(cacheKey, jsonEncode(decoded)); await prefs.setInt(cacheKey + '_at', DateTime.now().millisecondsSinceEpoch);
       return result;
     } catch (e) {
-      if (cached != null) { try { final stale = decode(jsonDecode(cached) as Map<String, dynamic>); if (stale.isNotEmpty) return stale; } catch (_) {} }
+      if (cached != null) { try { final stale = decode(jsonDecode(cached) as Map<String, dynamic>); if (stale.isNotEmpty) { await _mergeCachedListStatuses(stale); return stale; } } catch (_) {} }
       final diagnostics = [
         'endpoint=$endpoint',
         'method=POST',
@@ -440,6 +483,11 @@ class _AmeoClient {
       throw _AmeoRequestException(diagnostics);
     }
   }
+  Future<void> _mergeCachedListStatuses(List<_AmeoAnime> items) async {
+    final nodes = items.map((item) => item.dailyAlNode).whereType<BaseNode>().toList();
+    await MalApi.mergeCachedMyListStatus(nodes, 'anime');
+  }
+
   List<_AmeoAnime> decode(Map<String, dynamic> body) {
     final rawMetadata = body['animeData']; final rawRecommendations = body['recommendations'];
     if (rawMetadata is! Map || rawRecommendations is! List) throw const FormatException('Expected animeData object and recommendations array');
