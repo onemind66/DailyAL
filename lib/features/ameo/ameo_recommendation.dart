@@ -162,7 +162,17 @@ class _AmeoRecommendationPageState extends State<AmeoRecommendationPage> {
       context: context, isScrollControlled: true, useSafeArea: true, showDragHandle: true,
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, setSheetState) => Padding(
-          padding: EdgeInsets.fromLTRB(20, 8, 20, MediaQuery.of(context).viewInsets.bottom + 20),
+          padding: EdgeInsets.fromLTRB(
+            20,
+            8,
+            20,
+            (() {
+              final media = MediaQuery.of(context);
+              final keyboardInset = media.viewInsets.bottom;
+              final navigationInset = media.viewPadding.bottom;
+              return (keyboardInset > navigationInset ? keyboardInset : navigationInset) + 20;
+            })(),
+          ),
           child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('Pengaturan Ameo', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 12),
@@ -309,7 +319,31 @@ class _AmeoClient {
     if (!force && cached != null && DateTime.now().millisecondsSinceEpoch - cachedAt < ttl.inMilliseconds) return decode(jsonDecode(cached) as Map<String, dynamic>);
     final watch = Stopwatch()..start(); var phase = 'request'; var statusCode = 0; var contentType = ''; var responseBody = '';
     try {
-      final response = await http.post(Uri.parse(endpoint), headers: const {'content-type': 'text/plain;charset=UTF-8', 'user-agent': 'DailyAL-Modif (Ameo integration)'}, body: jsonEncode({'username': username, 'settings': settings.toJson(), 'availableAnimeMetadataIDs': <int>[], 'includeContributors': true})).timeout(const Duration(seconds: 30));
+      final response = await http.post(
+        Uri.parse(endpoint),
+        headers: const {
+          'content-type': 'application/json; charset=UTF-8',
+          'origin': 'https://anime.ameo.dev',
+          'user-agent': 'DailyAL-Modif (Ameo integration)',
+        },
+        body: jsonEncode({
+          'dataSource': {'type': 'username', 'username': username},
+          'availableAnimeMetadataIDs': <int>[],
+          'excludedRankingAnimeIDs': <int>[],
+          'excludedGenreIDs': <int>[],
+          'modelName': settings.model,
+          'includeContributors': true,
+          'includeExtraSeasons': settings.includeExtraSeasons,
+          'includeONAsOVAspecials': settings.includeONAsOVAspecials,
+          'includeMovies': settings.includeMovies,
+          'includeMusic': settings.includeMusic,
+          'profileSource': 'mal',
+          'filterPlanToWatch': settings.filterPlanToWatch,
+          'logitWeight': settings.logitWeight,
+          'nicheBoostFactor': settings.nicheBoostFactor,
+          'popularityAttenuationFactor': 0.0008,
+        }),
+      ).timeout(const Duration(seconds: 30));
       statusCode = response.statusCode; contentType = response.headers['content-type'] ?? ''; responseBody = response.body;
       if (statusCode < 200 || statusCode >= 300) throw HttpException('Ameo HTTP $statusCode');
       phase = 'json_decode'; final decoded = jsonDecode(response.body);
