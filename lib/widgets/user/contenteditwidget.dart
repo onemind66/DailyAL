@@ -470,45 +470,81 @@ class _ContentEditWidgetState extends State<ContentEditWidget> {
     updateParent(result);
   }
 
-  void updateRatingStatus(int value) async {
-    bool result = false;
+  Future<void> updateRatingStatus(int value) async {
+    logDal(
+        '[ScoreUpdate] tapped value=$value current=$starValue category=${widget.category} id=$_id modifyStars=$modifyStars');
+
+    if (modifyStars) {
+      logDal('[ScoreUpdate] ignored: another score update is in progress');
+      return;
+    }
     if (value == starValue) {
+      logDal('[ScoreUpdate] ignored: selected score is already active');
       return;
     }
-    if (!await hasConnection()) {
-      showToast(S.current.No_Connection);
-      return;
-    }
-    if (mounted)
-      setState(() {
-        modifyStars = true;
-      });
-    var content = contentDetailed;
-    if (contentDetailed is BaseNode) {
-      content = contentDetailed?.content;
-    }
-    var status;
-    if (widget.category.equals("anime")) {
-      status = await MalUser.updateMyAnimeListStatus(content.id, score: value);
-    } else {
-      status = await MalUser.updateMyMangaListStatus(content.id, score: value);
-    }
-    if (status != null) {
-      result = true;
-      updateListStatus(status);
-      if (mounted)
+
+    bool result = false;
+    bool updateStarted = false;
+    try {
+      final connected = await hasConnection();
+      logDal('[ScoreUpdate] connection check=$connected');
+      if (!connected) {
+        showToast(S.current.No_Connection);
+        return;
+      }
+
+      if (mounted) {
         setState(() {
-          modifyStars = false;
-          starValue = status.score;
+          modifyStars = true;
         });
-    } else {
+      }
+      updateStarted = true;
+
+      var content = contentDetailed;
+      if (contentDetailed is BaseNode) {
+        content = contentDetailed?.content;
+      }
+      if (content == null || content.id == null) {
+        logDal('[ScoreUpdate] aborted: content or content id is null');
+        showToast(S.current.Couldnt_Update);
+        return;
+      }
+
+      logDal(
+          '[ScoreUpdate] sending request category=${widget.category} id=${content.id} score=$value');
+      final status = widget.category.equals('anime')
+          ? await MalUser.updateMyAnimeListStatus(content.id, score: value)
+          : await MalUser.updateMyMangaListStatus(content.id, score: value);
+
+      logDal(
+          '[ScoreUpdate] response received success=${status != null} returnedScore=${status?.score}');
+      if (status != null) {
+        result = true;
+        updateListStatus(status);
+        if (mounted) {
+          setState(() {
+            starValue = status.score;
+          });
+        }
+      } else {
+        showToast(S.current.Couldnt_Update);
+      }
+    } catch (e, stackTrace) {
+      logDal('[ScoreUpdate] exception: $e');
+      logDal(stackTrace);
       showToast(S.current.Couldnt_Update);
-      if (mounted)
+    } finally {
+      if (updateStarted && mounted) {
         setState(() {
           modifyStars = false;
         });
+      }
+      if (updateStarted) {
+        updateParent(result);
+      }
+      logDal(
+          '[ScoreUpdate] finished result=$result current=$starValue updateStarted=$updateStarted');
     }
-    updateParent(result);
   }
 
   checkForUpdatesDuringBuild() {
@@ -1349,12 +1385,18 @@ class _ContentEditWidgetState extends State<ContentEditWidget> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 5),
       child: ShadowButton(
-        onPressed: () async {
-          itemScrollController.scrollTo(
-            index: e,
-            alignment: 0.5,
-            duration: const Duration(milliseconds: 200),
-          );
+        onPressed: () {
+          logDal(
+              '[ScoreUpdate] button callback value=$value index=$e controllerAttached=${itemScrollController.isAttached}');
+          if (itemScrollController.isAttached) {
+            itemScrollController.scrollTo(
+              index: e,
+              alignment: 0.5,
+              duration: const Duration(milliseconds: 200),
+            ).catchError((error) {
+              logDal('[ScoreUpdate] scroll-to-score failed: $error');
+            });
+          }
           updateRatingStatus(value);
         },
         child: Text(value == 0 ? S.current.Select : value.toString()),
