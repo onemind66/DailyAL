@@ -51,6 +51,8 @@ class _CharacterScreenState extends State<CharacterScreen> {
   List<VoicesFull> _originalVoices = [], _sortedVoices = [];
   bool _disposed = false;
   int _currentImageIndex = 0;
+  bool _isDetailsLoading = true;
+  String? _detailsError;
 
   @override
   void initState() {
@@ -73,56 +75,108 @@ class _CharacterScreenState extends State<CharacterScreen> {
     super.dispose();
   }
 
-  getSeiyuuDetails() async {
-    var _personInfo =
-        await DalApi.i.getCharaPeopleInfo(id, DataUnionType.people);
-    if (_personInfo != null) {
-      personInfo = _personInfo as PeopleV4Data;
+  Future<void> getSeiyuuDetails() async {
+    try {
+      final result =
+          await DalApi.i.getCharaPeopleInfo(id, DataUnionType.people);
+      if (result is! PeopleV4Data) {
+        throw StateError('The people endpoint returned no usable person data.');
+      }
 
-      // add voiced characters excluding duplicates
+      personInfo = result;
       final seen = <int>{};
       _originalVoices = [];
-      for (final v in personInfo?.voices ?? []) {
-        final id = v.character?.malId;
-        if (id != null && !seen.contains(id)) {
-          seen.add(id);
-          _originalVoices.add(v);
+      for (final voice in personInfo?.voices ?? []) {
+        final characterId = voice.character?.malId;
+        if (characterId != null && seen.add(characterId)) {
+          _originalVoices.add(voice);
         }
       }
       _sortedVoices = List.from(_originalVoices);
-
       characterPics.insert(0, personInfo!.images?.jpg?.imageUrl ?? '');
-      applyChanges();
-    } else {
-      showToast(S.current.Couldnt_retreive_Content);
+      _finishDetailsLoad();
+    } catch (error, stackTrace) {
+      _handleDetailsLoadError(error, stackTrace);
     }
   }
 
-  getSeiyuuPics() async {
-    var _characterPics = await DalApi.i.getPictures(id, 'people');
-    if (_characterPics != null && _characterPics.isNotEmpty) {
-      characterPics.addAll(_characterPics);
-      applyChanges();
+  Future<void> getSeiyuuPics() async {
+    try {
+      final pictures = await DalApi.i.getPictures(id, 'people');
+      if (pictures != null && pictures.isNotEmpty && mounted) {
+        characterPics.addAll(pictures);
+        applyChanges();
+      }
+    } catch (error, stackTrace) {
+      debugPrint('[CharacterScreen] Failed to load people pictures (id=$id): $error');
+      debugPrintStack(stackTrace: stackTrace);
     }
   }
 
-  getCharacterDetails() async {
-    var _characterInfo =
-        await DalApi.i.getCharaPeopleInfo(id, DataUnionType.character);
-    if (_characterInfo != null) {
-      characterInfo = _characterInfo as CharacterV4Data;
+  Future<void> getCharacterDetails() async {
+    try {
+      final result =
+          await DalApi.i.getCharaPeopleInfo(id, DataUnionType.character);
+      if (result is! CharacterV4Data) {
+        throw StateError('The character endpoint returned no usable character data.');
+      }
+
+      characterInfo = result;
       characterPics.insert(0, characterInfo!.images?.jpg?.imageUrl ?? '');
-      applyChanges();
-    } else {
-      showToast(S.current.Couldnt_retreive_Content);
+      _finishDetailsLoad();
+    } catch (error, stackTrace) {
+      _handleDetailsLoadError(error, stackTrace);
     }
   }
 
-  getCharacterPictures() async {
-    var _characterPics = await DalApi.i.getPictures(id, 'character');
-    if (_characterPics != null && _characterPics.isNotEmpty) {
-      characterPics.addAll(_characterPics);
-      applyChanges();
+  Future<void> getCharacterPictures() async {
+    try {
+      final pictures = await DalApi.i.getPictures(id, 'character');
+      if (pictures != null && pictures.isNotEmpty && mounted) {
+        characterPics.addAll(pictures);
+        applyChanges();
+      }
+    } catch (error, stackTrace) {
+      debugPrint('[CharacterScreen] Failed to load character pictures (id=$id): $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
+  void _finishDetailsLoad() {
+    if (!mounted) return;
+    setState(() {
+      _isDetailsLoading = false;
+      _detailsError = null;
+    });
+  }
+
+  void _handleDetailsLoadError(Object error, StackTrace stackTrace) {
+    debugPrint(
+        '[CharacterScreen] Failed to load ${chara} details (malId=$id, errorType=${error.runtimeType}): $error');
+    debugPrintStack(stackTrace: stackTrace);
+    if (!mounted) return;
+    setState(() {
+      _isDetailsLoading = false;
+      _detailsError = error is StateError
+          ? 'The service returned no usable data for this ID.'
+          : 'A network, server, or response-parsing error occurred.';
+    });
+  }
+
+  Future<void> _retryDetailsLoad() async {
+    if (!mounted || _isDetailsLoading) return;
+    setState(() {
+      _isDetailsLoading = true;
+      _detailsError = null;
+      characterInfo = null;
+      personInfo = null;
+      characterPics.clear();
+    });
+
+    if (chara.equals('character')) {
+      await Future.wait([getCharacterDetails(), getCharacterPictures()]);
+    } else {
+      await Future.wait([getSeiyuuDetails(), getSeiyuuPics()]);
     }
   }
 
@@ -138,7 +192,7 @@ class _CharacterScreenState extends State<CharacterScreen> {
   @override
   Widget build(BuildContext context) {
     return TitlebarScreen(
-      (characterInfo != null || personInfo != null)
+      (characterInfo != null || personInfo != null || !_isDetailsLoading)
           ? content()
           : ShimmerColor(content()),
       appbarTitle: '',
@@ -179,10 +233,75 @@ class _CharacterScreenState extends State<CharacterScreen> {
   }
 
   Widget content() {
+    if (characterInfo == null && personInfo == null && _detailsError != null) {
+      return _buildDetailsError();
+    }
     if (ResponsiveHelper.isTabletOrLarger(context)) {
       return _buildTabletLayout();
     }
     return _buildMobileLayout();
+  }
+
+  Widget _buildDetailsError() {
+    final isCharacter = chara.equals('character');
+    final categoryLabel = isCharacter ? 'Character' : 'Person / voice actor';
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.cloud_off_outlined, size: 44),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Could not load $categoryLabel details',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'MAL ID: $id\n'
+                    'Reason: ${_detailsError ?? 'Unknown error'}\n\n'
+                    'The request may have timed out, the service may be temporarily unavailable, '
+                    'or the response may be incomplete or invalid. This does not necessarily mean '
+                    'the entry was deleted.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'You can try:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '• Check your internet connection.\n'
+                      '• Retry in a little while if the API is temporarily unavailable.\n'
+                      '• If this continues, verify the MAL ID and report the ID with this message.',
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: _isDetailsLoading ? null : _retryDetailsLoad,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry loading'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildTabletLayout() {
