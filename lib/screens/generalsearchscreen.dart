@@ -1685,39 +1685,40 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
 
   Widget _filterSection() {
     try {
-      return SafeArea(
-        // Keep the inline filter panel above Android's system navigation area.
-        // This only adds safe-area space; filter actions and close behavior stay unchanged.
-        top: false,
-        bottom: true,
-        child: ExpandedSection(
-          expand: showFilter,
+      return ExpandedSection(
+        expand: showFilter,
+        child: SafeArea(
+          // Keep the inline filter panel above Android's system navigation area.
+          // Filter actions and close behavior remain unchanged.
+          top: false,
+          bottom: true,
           child: Container(
             width: double.infinity,
             child: SortFilterPopup(
-            sortFilterDisplay: _sortFilterDisplay,
-            onSortFilterChange: _onFilterChange,
-            showText: category.equals("featured"),
-            additional: S.current.Tags_unApplied,
-            independent: false,
-            sortFilterOptions: SortFilterOptions(
-              sortOptions: [],
-              filterOptions: isSpecialQuery
-                  ? []
-                  : _removeExclusiveFilters(getFilterOptions()),
-              displayOptions: _getDisplayOptions(),
-              categories:
-                  (widget.exclusiveScreen || isSpecialQuery) ? [] : searchTypes,
-            ),
-            onCategoryChange: (value) {
-              _onCategorySelect(value);
-            },
-            onClose: () {
-              if (mounted)
-                setState(() {
-                  showFilter = false;
-                });
-            },
+              sortFilterDisplay: _sortFilterDisplay,
+              onSortFilterChange: _onFilterChange,
+              showText: category.equals("featured"),
+              additional: S.current.Tags_unApplied,
+              independent: false,
+              sortFilterOptions: SortFilterOptions(
+                sortOptions: [],
+                filterOptions: isSpecialQuery
+                    ? []
+                    : _removeExclusiveFilters(getFilterOptions()),
+                displayOptions: _getDisplayOptions(),
+                categories: (widget.exclusiveScreen || isSpecialQuery)
+                    ? []
+                    : searchTypes,
+              ),
+              onCategoryChange: (value) {
+                _onCategorySelect(value);
+              },
+              onClose: () {
+                if (mounted)
+                  setState(() {
+                    showFilter = false;
+                  });
+              },
             ),
           ),
         ),
