@@ -25,6 +25,10 @@ import '../main.dart';
 
 enum VoiceSortType { mostRecent, favorites, title }
 
+class _InvalidDetailsResponseException implements Exception {
+  const _InvalidDetailsResponseException();
+}
+
 final Map<int, int> _favoritesCache = {};
 
 class CharacterScreen extends StatefulWidget {
@@ -80,7 +84,7 @@ class _CharacterScreenState extends State<CharacterScreen> {
       final result =
           await DalApi.i.getCharaPeopleInfo(id, DataUnionType.people);
       if (result is! PeopleV4Data) {
-        throw StateError('The people endpoint returned no usable person data.');
+        throw const _InvalidDetailsResponseException();
       }
 
       personInfo = result;
@@ -118,7 +122,7 @@ class _CharacterScreenState extends State<CharacterScreen> {
       final result =
           await DalApi.i.getCharaPeopleInfo(id, DataUnionType.character);
       if (result is! CharacterV4Data) {
-        throw StateError('The character endpoint returned no usable character data.');
+        throw const _InvalidDetailsResponseException();
       }
 
       characterInfo = result;
@@ -157,7 +161,7 @@ class _CharacterScreenState extends State<CharacterScreen> {
     if (!mounted) return;
     setState(() {
       _isDetailsLoading = false;
-      _detailsError = error is StateError
+      _detailsError = error is _InvalidDetailsResponseException
           ? 'The service returned no usable data for this ID.'
           : 'A network, server, or response-parsing error occurred.';
     });

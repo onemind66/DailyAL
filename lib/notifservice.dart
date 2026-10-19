@@ -54,6 +54,8 @@ class NotificationService {
       NotificationService._internal();
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
+  // Keep references to Linux timers so pending callbacks can be cancelled.
+  final Map<int, Timer> _linuxNotificationTimers = <int, Timer>{};
 
   factory NotificationService() {
     return _notificationService;
@@ -177,12 +179,34 @@ class NotificationService {
       logDal(e);
     }
 
-    if (seasonResult?.data == null) return;
+    final loadedSeason = seasonResult;
+    final seasonItems = loadedSeason?.data;
+    if (seasonItems == null) {
+      logDal('Skipping notification reconciliation: season response has no data.');
+      return;
+    }
+    // An empty or paginated response is not authoritative enough to delete
+    // reminders; preserve the last known-good set and retry on the next sync.
+    if (seasonItems.isEmpty || loadedSeason!.paging?.next != null) {
+      logDal(
+        'Skipping notification reconciliation: season data is empty or incomplete '
+        '(items=' + seasonItems.length.toString() +
+        ', hasNext=' + (loadedSeason?.paging?.next != null).toString() + ').',
+      );
+      return;
+    }
     scheduleData ??= {};
+    if (scheduleData.isEmpty) {
+      // An empty schedule response can be caused by a transient upstream or
+      // cache issue; it must not be treated as proof that every reminder is stale.
+      logDal('Skipping notification reconciliation: schedule data is empty.');
+      return;
+    }
 
     final expectedNotificationIds = <int>{};
+    var allSchedulesSucceeded = true;
 
-    for (var baseNode in seasonResult!.data!) {
+    for (var baseNode in seasonItems) {
       var node = baseNode.content;
       if (node == null || node.id == null) continue;
       node.title = getNodeTitle(node);
@@ -229,8 +253,7 @@ class NotificationService {
             continue;
           }
 
-          expectedNotificationIds.add(2100 + node.id!);
-          await _scheduleUsingLiveChart(
+          final scheduled = await _scheduleUsingLiveChart(
             liveSchedule,
             myListStatus,
             node,
@@ -238,25 +261,43 @@ class NotificationService {
             body,
             channel,
           );
+          if (scheduled) {
+            expectedNotificationIds.add(2100 + node.id!);
+          } else {
+            allSchedulesSucceeded = false;
+            logDal('Failed to schedule reminder for MAL id=' + node.id.toString() +
+                '; preserving existing reminders.');
+          }
         } else {
           logDal("No schedule data for ${node.title}");
         }
       }
     }
 
-    // Only mark the sync timestamp after the API data was successfully loaded
-    // and pending reminders have been reconciled.
-    await _cancelStaleScheduledNotifications(expectedNotificationIds);
+    // Do not cancel any existing reminder if even one replacement failed.
+    if (!allSchedulesSucceeded) return;
+
+    final reconciled =
+        await _cancelStaleScheduledNotifications(expectedNotificationIds);
+    if (!reconciled) {
+      logDal('Notification reconciliation failed; sync timestamp was not updated.');
+      return;
+    }
     user.pref.notifPref.daySubscribed = nowDate;
     await user.setIntance();
   }
 
-  Future<void> _cancelStaleScheduledNotifications(
+  Future<bool> _cancelStaleScheduledNotifications(
       Set<int> expectedNotificationIds) async {
     if (Platform.isLinux) {
-      // Linux notifications are shown through a timer/native overlay and are
-      // not exposed as scheduled requests by flutter_local_notifications.
-      return;
+      final staleIds = _linuxNotificationTimers.keys
+          .where((id) => !expectedNotificationIds.contains(id))
+          .toList(growable: false);
+      for (final id in staleIds) {
+        _linuxNotificationTimers.remove(id)?.cancel();
+        logDal('Cancelled stale Linux anime reminder id=$id');
+      }
+      return true;
     }
 
     try {
@@ -264,30 +305,36 @@ class NotificationService {
           .pendingNotificationRequests();
 
       for (final request in pending) {
-        // This service uses id = serviceId * 100 + MAL id (serviceId 21).
-        // Check the payload as well, so unrelated notifications are untouched.
         if (request.payload == null) continue;
 
+        dynamic payload;
         try {
-          final payload = jsonDecode(request.payload!);
-          if (payload is! Map<String, dynamic>) continue;
-          final nodeId = payload['id'];
-          if (nodeId is! int || request.id != 2100 + nodeId) continue;
-          if (expectedNotificationIds.contains(request.id)) continue;
+          payload = jsonDecode(request.payload!);
+        } catch (e) {
+          logDal('Unable to decode pending notification id=${request.id}: $e');
+          continue;
+        }
+        if (payload is! Map<String, dynamic>) continue;
+        final nodeId = payload['id'];
+        if (nodeId is! int || request.id != 2100 + nodeId) continue;
+        if (expectedNotificationIds.contains(request.id)) continue;
 
+        try {
           await flutterLocalNotificationsPlugin.cancel(id: request.id);
           logDal('Cancelled stale anime reminder id=${request.id}, malId=$nodeId');
         } catch (e) {
-          // Do not cancel requests whose payload cannot be safely identified.
-          logDal('Unable to inspect pending notification id=${request.id}: $e');
+          logDal('Failed to cancel stale anime reminder id=${request.id}: $e');
+          return false;
         }
       }
+      return true;
     } catch (e) {
       logDal('Failed to reconcile pending anime notifications: $e');
+      return false;
     }
   }
 
-  Future<void> _scheduleUsingLiveChart(
+  Future<bool> _scheduleUsingLiveChart(
     ScheduleData scheduleData,
     MyAnimeListStatus myListStatus,
     Node node,
@@ -295,12 +342,15 @@ class NotificationService {
     String body,
     NotificationChannel channel,
   ) async {
-    String title = "Ep: ${scheduleData.episode} of ${node.title} is out!";
+    final timestamp = scheduleData.timestamp;
+    if (timestamp == null) {
+      logDal('Cannot schedule reminder without timestamp for MAL id=' + node.id.toString() + '.');
+      return false;
+    }
+    final nextDate = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
+    final title = "Ep: ${scheduleData.episode} of ${node.title} is out!";
 
-    var nextDate =
-        DateTime.fromMillisecondsSinceEpoch(scheduleData.timestamp! * 1000);
-
-    await showNotification(
+    return _showNotificationAndReport(
       serviceId: 21,
       title: title,
       body: body,
@@ -323,22 +373,53 @@ class NotificationService {
     Duration addTime = const Duration(milliseconds: 300),
     required NotificationChannel channel,
   }) async {
-    if (node?.id == null) {
-      return;
+    await _showNotificationAndReport(
+      episode: episode,
+      serviceId: serviceId,
+      node: node,
+      title: title,
+      body: body,
+      exactDate: exactDate,
+      addTime: addTime,
+      channel: channel,
+    );
+  }
+
+  Future<bool> _showNotificationAndReport({
+    int episode = 1,
+    int serviceId = 21,
+    Node? node,
+    String? title,
+    String? body,
+    DateTime? exactDate,
+    Duration addTime = const Duration(milliseconds: 300),
+    required NotificationChannel channel,
+  }) async {
+    final notificationNode = node;
+    final nodeId = notificationNode?.id;
+    if (notificationNode == null || nodeId == null) {
+      logDal('Skipping notification without a valid MAL id.');
+      return false;
     }
 
-    if (exactDate != null && exactDate.difference(DateTime.now()).isNegative) {
-      return;
+    if (exactDate != null && !exactDate.isAfter(DateTime.now())) {
+      logDal(
+          'Skipping notification scheduled in the past for MAL id=' +
+              nodeId.toString() +
+              '.');
+      return false;
     }
 
     logDal(
-        "${serviceId * 100 + node!.id!} -> $title - $body - scheduled for ${exactDate ?? DateTime.now().add(addTime)}");
+        "${serviceId * 100 + nodeId} -> $title - $body - scheduled for ${exactDate ?? DateTime.now().add(addTime)}");
 
     String? imagePath;
     FilePathAndroidBitmap? largeIconBitmap;
-    if (node.mainPicture?.large != null && node.title != null) {
-      imagePath = await _downloadAndSaveFile(node.mainPicture!.large!,
-          node.title!.getFormattedTitleForHtml(true)!);
+    if (notificationNode.mainPicture?.large != null &&
+        notificationNode.title != null) {
+      imagePath = await _downloadAndSaveFile(
+          notificationNode.mainPicture!.large!,
+          notificationNode.title!.getFormattedTitleForHtml(true)!);
     }
 
     StyleInformation? styleInfo;
@@ -359,23 +440,25 @@ class NotificationService {
 
     try {
       if (Platform.isLinux) {
+        final notificationId = serviceId * 100 + nodeId;
+        _linuxNotificationTimers.remove(notificationId)?.cancel();
         final delay = exactDate?.difference(DateTime.now()) ?? addTime;
-        if (delay.isNegative) {
-          await _showLinuxNotification(
-              serviceId, node, title, body, episode, imagePath);
-        } else {
-          Timer(delay, () async {
-            await _showLinuxNotification(
-                serviceId, node, title, body, episode, imagePath);
-          });
-        }
+        late final Timer timer;
+        timer = Timer(delay, () async {
+          if (identical(_linuxNotificationTimers[notificationId], timer)) {
+            _linuxNotificationTimers.remove(notificationId);
+          }
+          await _showLinuxNotification(serviceId, notificationNode, title, body,
+              episode, imagePath);
+        });
+        _linuxNotificationTimers[notificationId] = timer;
       } else {
         await flutterLocalNotificationsPlugin.zonedSchedule(
-          id: serviceId * 100 + node.id!,
+          id: serviceId * 100 + nodeId,
           title: _replaceTags(title) ??
               "DailyAnimeList - ${S.current.Episode_Reminder}",
           body: _replaceTags(body) ??
-              "${node.title} - Episode $episode ${S.current.just_got_aired}!!",
+              "${notificationNode.title} - Episode $episode ${S.current.just_got_aired}!!",
           scheduledDate: exactDate != null
               ? tz.TZDateTime.from(exactDate, tz.local)
               : tz.TZDateTime.now(tz.local).add(addTime),
@@ -392,13 +475,18 @@ class NotificationService {
             ),
           ),
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-          payload: jsonEncode(node.toJson()),
+          payload: jsonEncode(notificationNode.toJson()),
           matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
         );
       }
-    } catch (e) {
-      logDal(e);
+    } catch (e, stackTrace) {
+      logDal('Failed to schedule notification for MAL id=' +
+          nodeId.toString() +
+          ': $e');
+      logDal(stackTrace);
+      return false;
     }
+    return true;
   }
 
   Future<void> _showLinuxNotification(int serviceId, Node node, String? title,
