@@ -138,7 +138,7 @@ class _AmeoRecommendationPageState extends State<AmeoRecommendationPage> {
   Future<void> refresh({bool force = true}) async {
     final name = usernameController.text.trim();
     if (name.isEmpty) {
-      setState(() { loading = false; error = 'Username MyAnimeList tidak ditemukan. Atur melalui Pengaturan Ameo.'; technicalLog = 'phase=validation\nreason=empty_username\nprofile_auto_detected=${_currentMalUsername() != null}'; items = const []; });
+      setState(() { loading = false; error = 'Username MyAnimeList tidak ditemukan. Atur melalui Pengaturan Ameo.'; technicalLog = 'phase=validation\nreason=empty_username\nprofile_auto_detected=${user.status == AuthStatus.AUTHENTICATED}'; items = const []; });
       return;
     }
     await save();
@@ -148,7 +148,7 @@ class _AmeoRecommendationPageState extends State<AmeoRecommendationPage> {
       if (!mounted) return;
       setState(() {
         items = result; loading = false;
-        if (result.isEmpty) { error = 'Ameo tidak mengembalikan rekomendasi yang dapat ditampilkan.'; technicalLog = 'phase=decode\nrecommendation_count=0\nusername=${_safeUsername(name)}'; }
+        if (result.isEmpty) { error = 'Ameo tidak mengembalikan rekomendasi yang dapat ditampilkan.'; technicalLog = 'phase=decode\nrecommendation_count=0'; }
       });
     } catch (e) {
       if (!mounted) return;
@@ -210,7 +210,7 @@ class _AmeoRecommendationPageState extends State<AmeoRecommendationPage> {
             Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: _copyTechnicalLog, icon: const Icon(Icons.copy), label: const Text('Salin log'))),
           ]),
           Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: loading ? null : () => refresh(), icon: const Icon(Icons.refresh), label: const Text('Coba lagi'))),
-        ]))),
+        ])))),
       if (!loading && items.isEmpty && error == null) const Padding(padding: EdgeInsets.all(20), child: Text('Tambahkan username MyAnimeList melalui Pengaturan Ameo untuk memuat rekomendasi.')),
       for (var i = 0; i < items.length; i++) _AmeoRecommendationEntry(key: ValueKey(items[i].id), anime: items[i], index: i),
       const SizedBox(height: 20),
@@ -246,7 +246,7 @@ class _AmeoRecommendationEntryState extends State<_AmeoRecommendationEntry> {
     final anime = widget.anime;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (anime.dailyAlNode != null)
-        ContentAllWidget(dynContent: anime.dailyAlNode, myListStatus: null, index: widget.index, category: 'anime', displayType: DisplayType.list_vert, showEdit: false, showStatus: false, showBackgroundImage: false)
+        ContentAllWidget(dynContent: anime.dailyAlNode, myListStatus: null, index: widget.index, category: 'anime', showEdit: false, showStatus: false, showBackgroundImage: false)
       else
         ListTile(leading: SizedBox(width: 60, child: anime.image.isEmpty ? const Icon(Icons.movie_outlined) : CachedNetworkImage(imageUrl: anime.image, fit: BoxFit.cover)), title: Text(anime.title), subtitle: anime.score == null ? null : Text('Skor MAL: ${anime.score!.toStringAsFixed(2)}'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ContentDetailedScreen(id: anime.id)))),
       if (anime.contributors.isNotEmpty) Padding(padding: const EdgeInsets.only(left: 16, right: 12, bottom: 6), child: Column(children: [
@@ -350,16 +350,16 @@ class _AmeoRequestException implements Exception {
   final String diagnostics;
   const _AmeoRequestException(this.diagnostics);
 }
-String? _currentMalUsername() {
-  try {
-    if (user.status != AuthStatus.AUTHENTICATED) return null;
-    final value = UserProfService.i.userProf?.name?.trim();
-    return value == null || value.isEmpty ? null : value;
-  } catch (_) { return null; }
-}
 Future<String> _resolveAmeoUsername(SharedPreferences prefs) async {
   final saved = (prefs.getString('ameo_username') ?? '').trim();
   if (saved.isNotEmpty) return saved;
-  return _currentMalUsername() ?? '';
+  if (user.status != AuthStatus.AUTHENTICATED) return '';
+  try {
+    final profile = await MalUser.getUserInfo(fields: const ['name']);
+    return profile.name?.trim() ?? '';
+  } catch (_) {
+    // Keep the feature usable when the MAL profile cannot be resolved.
+    return '';
+  }
 }
 String _safeError(String value) => value.replaceAll(RegExp(r'[\r\n]+'), ' ').replaceAll(RegExp(r'(access_token|refresh_token|authorization)\s*[:=]\s*[^,; ]+', caseSensitive: false), r'$1=[redacted]');
