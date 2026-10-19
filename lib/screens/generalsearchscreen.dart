@@ -130,6 +130,8 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
   late Future<SearchResult> _seasonResult;
   late SortFilterDisplay _sortFilterDisplay;
 
+  String? _searchErrorMessage;
+
   bool _initDone = false;
 
   @override
@@ -453,6 +455,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
         stage = SearchStage.started;
         research = SearchStage.notstarted;
         opacity = 0;
+        _searchErrorMessage = null;
       });
 
     try {
@@ -506,7 +509,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
             jikanSearchTypes.contains(category)) {
           searchResult = await JikanHelper.jikanSearch(query,
               category: jikanTypeConv[category] ?? category,
-              fromCache: true,
+              fromCache: fromCache,
               filters: _filterOutputs);
         } else {
           if (int.tryParse(query) != null) {
@@ -527,11 +530,13 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
         await _mergeMyListStatus();
       }
     } catch (e) {
-      showToast(S.current.Couldnt_connect_network);
-      logDal(e);
+      logDal('Search failed: ${e.runtimeType}: $e');
+      _searchErrorMessage = _formatSearchError(e);
     }
 
-    if (searchResult?.data != null && searchResult!.data!.isNotEmpty) {
+    if (_searchErrorMessage != null) {
+      stage = SearchStage.empty;
+    } else if (searchResult?.data != null && searchResult!.data!.isNotEmpty) {
       stage = SearchStage.loaded;
     } else {
       stage = SearchStage.empty;
@@ -771,7 +776,9 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
               ? loadingBelowText(mainAxisAlignment: MainAxisAlignment.start)
               : stage == SearchStage.loaded
                   ? showResults()
-                  : _showNoResultsFound(),
+                  : _searchErrorMessage != null
+                      ? _showSearchError()
+                      : _showNoResultsFound(),
     );
   }
 
@@ -831,6 +838,70 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
       return false;
     }
     return true;
+  }
+
+  String _formatSearchError(Object error) {
+    if (error is JikanSearchException) {
+      if (error.statusCode == 429) {
+        return 'Jikan API rate limit reached (HTTP 429). Please wait a moment and try again.';
+      }
+      if (error.statusCode != null && error.statusCode! >= 500) {
+        return 'Jikan API server error (HTTP ${error.statusCode}). The service may be temporarily unavailable.';
+      }
+      if (error.statusCode != null) {
+        return 'Jikan API returned HTTP ${error.statusCode}. The request could not be completed.';
+      }
+      if (error.timeout) {
+        return 'The connection to Jikan API timed out after 3 attempts. Check your connection and try again.\\n\\nTechnical details: ${error.cause}';
+      }
+      if (error.connectionFailure) {
+        return 'Could not connect to Jikan API after 3 attempts. The connection was interrupted before a response was received. Check your internet connection or Jikan API availability.\\n\\nTechnical details: ${error.cause}';
+      }
+      return '${error.message}\\n\\nTechnical details: ${error.cause ?? error.message}';
+    }
+    return 'The search could not be completed. Check your internet connection and try again.\\n\\nTechnical details: $error';
+  }
+
+  Widget _showSearchError() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_outlined, size: 42),
+            const SizedBox(height: 12),
+            const Text(
+              'Search failed',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              _searchErrorMessage ?? 'An unexpected error occurred.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () {
+                final query = _searchController.text.isNotBlank
+                    ? _searchController.text
+                    : prevQuery;
+                if (mounted) {
+                  setState(() {
+                    stage = SearchStage.notstarted;
+                  });
+                }
+                startSearch(query, fromCache: false);
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try again'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _showNoResultsFound() {
@@ -1830,7 +1901,7 @@ class CustomFilters {
       fieldName: "Producer",
       type: FilterType.select,
       desc: "Producer",
-      apiFieldName: "producer",
+      apiFieldName: "producers",
       modalField: "studios",
       apiValues: Mal.animeStudios.keys.toList(),
       values: Mal.animeStudios.values.toList());
