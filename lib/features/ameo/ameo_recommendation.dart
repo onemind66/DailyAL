@@ -179,6 +179,27 @@ class _AmeoRecommendationPageState extends State<AmeoRecommendationPage> {
             TextFormField(key: ValueKey(draftUsername), initialValue: draftUsername, autocorrect: false,
               decoration: const InputDecoration(labelText: 'Username MyAnimeList', helperText: 'Otomatis dari profil login jika tersedia; tetap bisa diubah.', border: OutlineInputBorder()),
               onChanged: (value) => draftUsername = value),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: draftSettings.model,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Model rekomendasi',
+                helperText: 'Model dilatih dengan pendekatan berbeda dan dapat menghasilkan rekomendasi berbeda.',
+                border: OutlineInputBorder(),
+              ),
+              items: const [
+                DropdownMenuItem(value: '2026-logq', child: Text('Aug. 2026 · LogQ (default)')),
+                DropdownMenuItem(value: '2026-rc', child: Text('Aug. 2026 · Release candidate')),
+                DropdownMenuItem(value: '2025-jax', child: Text('2025 · JAX')),
+                DropdownMenuItem(value: 'legacy', child: Text('Legacy · 2023')),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  setSheetState(() => draftSettings = draftSettings.copyWith(model: value));
+                }
+              },
+            ),
             SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Season tambahan'), value: draftSettings.includeExtraSeasons, onChanged: (v) => setSheetState(() => draftSettings = draftSettings.copyWith(includeExtraSeasons: v))),
             SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Film'), value: draftSettings.includeMovies, onChanged: (v) => setSheetState(() => draftSettings = draftSettings.copyWith(includeMovies: v))),
             SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('ONA / OVA / Specials'), value: draftSettings.includeONAsOVAspecials, onChanged: (v) => setSheetState(() => draftSettings = draftSettings.copyWith(includeONAsOVAspecials: v))),
@@ -256,12 +277,59 @@ class _AmeoRecommendationEntryState extends State<_AmeoRecommendationEntry> {
     final anime = widget.anime;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (anime.dailyAlNode != null)
-        ContentAllWidget(dynContent: anime.dailyAlNode, myListStatus: null, index: widget.index, category: 'anime', showEdit: false, showStatus: false, showBackgroundImage: false)
+        ContentAllWidget(
+          dynContent: anime.dailyAlNode,
+          myListStatus: null,
+          index: widget.index,
+          category: 'anime',
+          aspectRatio: 2.35,
+          imageAspectRatio: .55,
+          showImage: true,
+          showEdit: false,
+          showStatus: false,
+          showBackgroundImage: false,
+        )
       else
-        ListTile(leading: SizedBox(width: 60, child: anime.image.isEmpty ? const Icon(Icons.movie_outlined) : CachedNetworkImage(imageUrl: anime.image, fit: BoxFit.cover)), title: Text(anime.title), subtitle: anime.score == null ? null : Text('Skor MAL: ${anime.score!.toStringAsFixed(2)}'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ContentDetailedScreen(id: anime.id)))),
-      if (anime.contributors.isNotEmpty) Padding(padding: const EdgeInsets.only(left: 16, right: 12, bottom: 6), child: Column(children: [
-        Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: () => setState(() => expanded = !expanded), icon: Icon(expanded ? Icons.expand_less : Icons.expand_more), label: Text(expanded ? 'Sembunyikan alasan' : 'Mengapa direkomendasikan?'))),
-        if (expanded) Container(width: double.infinity, margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(.4), borderRadius: BorderRadius.circular(10)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        ListTile(
+          leading: SizedBox(width: 60, child: anime.image.isEmpty ? const Icon(Icons.movie_outlined) : CachedNetworkImage(imageUrl: anime.image, fit: BoxFit.cover)),
+          title: Text(anime.title),
+          subtitle: anime.score == null ? null : Text('Prediksi Ameo: ${anime.score!.toStringAsFixed(3)}'),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ContentDetailedScreen(id: anime.id))),
+        ),
+      if (anime.score != null || anime.contributors.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(left: 16, right: 12, top: 2, bottom: 4),
+          child: Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 0,
+            children: [
+              if (anime.score != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.auto_awesome, size: 14, color: Theme.of(context).colorScheme.onSecondaryContainer),
+                    const SizedBox(width: 5),
+                    Text('Prediksi Ameo ${anime.score!.toStringAsFixed(3)}', style: Theme.of(context).textTheme.labelMedium?.copyWith(color: Theme.of(context).colorScheme.onSecondaryContainer)),
+                  ]),
+                ),
+              if (anime.contributors.isNotEmpty)
+                TextButton.icon(
+                  onPressed: () => setState(() => expanded = !expanded),
+                  icon: Icon(expanded ? Icons.expand_less : Icons.expand_more),
+                  label: Text(expanded ? 'Sembunyikan alasan' : 'Mengapa direkomendasikan?'),
+                ),
+            ],
+          ),
+        ),
+      if (expanded && anime.contributors.isNotEmpty)
+        Padding(padding: const EdgeInsets.only(left: 16, right: 12, bottom: 6), child: Column(children: [
+        Container(width: double.infinity, margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(.4), borderRadius: BorderRadius.circular(10)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Recommended because you watched:', style: Theme.of(context).textTheme.titleSmall),
           for (final source in anime.contributors) ListTile(dense: true, contentPadding: EdgeInsets.zero, leading: const Icon(Icons.movie_filter_outlined), title: Text(source.title), subtitle: source.ratingDelta != null ? Text('Kontribusi: ${source.ratingDelta!.toStringAsFixed(3)}') : (source.userRating == null ? null : Text('Rating Anda: ${source.userRating}')), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ContentDetailedScreen(id: source.id)))),
         ])),
@@ -279,7 +347,6 @@ class _AmeoAnime {
     final image = picture is Map ? (picture['large'] ?? picture['medium'] ?? '').toString() : '';
     final title = (json['title'] ?? json['title_english'] ?? 'Anime #$id').toString();
     final rawScore = rec is Map ? (rec['score'] ?? rec['predictedScore'] ?? rec['predicted_score']) : null;
-    final mean = json['mean'];
     dynamic node;
     try { node = _AmeoDailyALNode(AnimeDetailed.fromJson(<String, dynamic>{...json, 'id': id})); } catch (_) {}
     final contributors = <_AmeoContributor>[];
@@ -294,7 +361,11 @@ class _AmeoAnime {
       final delta = raw['ratingDelta'] ?? raw['rating_delta'];
       contributors.add(_AmeoContributor(id: contributorId, title: contributorTitle, userRating: rating is num ? rating.toDouble() : double.tryParse(rating?.toString() ?? ''), ratingDelta: delta is num ? delta.toDouble() : double.tryParse(delta?.toString() ?? '')));
     }
-    return _AmeoAnime(id: id, title: title, image: image, score: rawScore is num ? rawScore.toDouble() : (mean is num ? mean.toDouble() : null), dailyAlNode: node, contributors: contributors);
+    // A missing prediction must remain missing; MAL's mean score is a different metric.
+    final predictedScore = rawScore is num
+        ? rawScore.toDouble()
+        : double.tryParse(rawScore?.toString() ?? '');
+    return _AmeoAnime(id: id, title: title, image: image, score: predictedScore, dailyAlNode: node, contributors: contributors);
   }
 }
 class _AmeoSettings {
