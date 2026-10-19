@@ -852,14 +852,14 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
         return 'Jikan API returned HTTP ${error.statusCode}. The request could not be completed.';
       }
       if (error.timeout) {
-        return 'The connection to Jikan API timed out after 3 attempts. Check your connection and try again.\\n\\nTechnical details: ${error.cause}';
+        return 'The connection to Jikan API timed out after 3 attempts. Check your connection and try again.\nTechnical details: ${error.cause}';
       }
       if (error.connectionFailure) {
-        return 'Could not connect to Jikan API after 3 attempts. The connection was interrupted before a response was received. Check your internet connection or Jikan API availability.\\n\\nTechnical details: ${error.cause}';
+        return 'Could not connect to Jikan API after 3 attempts. The connection was interrupted before a response was received. Check your internet connection or Jikan API availability.\nTechnical details: ${error.cause}';
       }
-      return '${error.message}\\n\\nTechnical details: ${error.cause ?? error.message}';
+      return '${error.message}\nTechnical details: ${error.cause ?? error.message}';
     }
-    return 'The search could not be completed. Check your internet connection and try again.\\n\\nTechnical details: $error';
+    return 'The search could not be completed. Check your internet connection and try again.\nTechnical details: $error';
   }
 
   Widget _showSearchError() {
