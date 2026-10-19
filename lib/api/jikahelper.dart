@@ -1,4 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+
+import 'package:http/http.dart' as http;
 
 import 'package:dailyanimelist/api/credmal.dart';
 import 'package:dailyanimelist/api/jikan_models.dart';
@@ -11,6 +15,25 @@ import 'package:dailyanimelist/screens/generalsearchscreen.dart';
 import 'package:dailyanimelist/widgets/search/filtermodal.dart';
 import 'package:dal_commons/commons.dart';
 import 'package:dal_commons/dal_commons.dart';
+
+class JikanSearchException implements Exception {
+  final String message;
+  final int? statusCode;
+  final Object? cause;
+  final bool connectionFailure;
+  final bool timeout;
+
+  const JikanSearchException({
+    required this.message,
+    this.statusCode,
+    this.cause,
+    this.connectionFailure = false,
+    this.timeout = false,
+  });
+
+  @override
+  String toString() => message;
+}
 
 class JikanHelper {
   static Future<SearchResult> getGenre({
@@ -151,28 +174,63 @@ class JikanHelper {
         return _result;
       }
     }
-    var searchResult = SearchResult();
     try {
-      String v4Url =
+      final v4Url =
           '${CredMal.jikanV4}$category?q=${query ?? ''}&page=$pageNumber$custom';
-      logDal(v4Url);
-      var response = await MalConnect.retryGet(v4Url, Map());
-      if (response != null && response.statusCode == 200) {
-        Map<String, dynamic> result = jsonDecode(response.body) ?? {};
-        return SearchResult(
-            data: (result["data"] ?? <BaseNode>[])
-                .map<BaseNode>((e) => _fromMap(e, category))
-                .toList(),
-            paging: pageNumber == null
-                ? Paging()
-                : Paging(next: (pageNumber + 1).toString()));
-      }
-    } catch (e) {
-      logDal(e);
-    }
+      logDal('Jikan search request: $v4Url');
+      final response = await MalConnect.retryGet(
+        v4Url,
+        Map(),
+        maxAttempts: 3,
+        retryClientException: true,
+      );
 
-    CacheManager.instance.setCachedJson(url, searchResult);
-    return searchResult;
+      if (response.statusCode != 200) {
+        throw JikanSearchException(
+          message: 'Jikan API returned HTTP ${response.statusCode}.',
+          statusCode: response.statusCode,
+        );
+      }
+
+      final dynamic decoded;
+      try {
+        decoded = jsonDecode(response.body);
+      } on FormatException catch (e) {
+        throw JikanSearchException(
+          message: 'Jikan API returned an invalid JSON response.',
+          cause: e,
+        );
+      }
+      if (decoded is! Map<String, dynamic> || decoded['data'] is! List) {
+        throw const JikanSearchException(
+          message: 'Jikan API returned an unexpected response format.',
+        );
+      }
+
+      final result = decoded;
+      final searchResult = SearchResult(
+        data: (result["data"] as List)
+            .map<BaseNode>((e) => _fromMap(e, category))
+            .toList(),
+        paging: Paging(next: (pageNumber + 1).toString()),
+      );
+      CacheManager.instance.setCachedJson(url, searchResult);
+      return searchResult;
+    } on JikanSearchException {
+      rethrow;
+    } catch (e) {
+      logDal('Jikan search failed after retry handling: ${e.runtimeType}: $e');
+      throw JikanSearchException(
+        message: 'Unable to complete the Jikan API search.',
+        cause: e,
+        connectionFailure: e is SocketException ||
+            e is http.ClientException ||
+            e.toString().contains('SocketException') ||
+            e.toString().contains('ClientException'),
+        timeout: e is TimeoutException ||
+            e.toString().contains('TimeoutException'),
+      );
+    }
   }
 
   static BaseNode _fromMap(dynamic e, String category) {
