@@ -307,7 +307,7 @@ class _AmeoSettings {
   Future<void> save(SharedPreferences p) async {
     await p.setString('ameo_model', model); await p.setBool('ameo_extra_seasons', includeExtraSeasons); await p.setBool('ameo_ovas', includeONAsOVAspecials); await p.setBool('ameo_movies', includeMovies); await p.setBool('ameo_music', includeMusic); await p.setBool('ameo_filter_ptw', filterPlanToWatch); await p.setDouble('ameo_logit_weight', logitWeight); await p.setDouble('ameo_niche_boost', nicheBoostFactor);
   }
-  Map<String, dynamic> toJson() => {'model': model, 'includeExtraSeasons': includeExtraSeasons, 'includeONAsOVAspecials': includeONAsOVAspecials, 'includeMovies': includeMovies, 'includeMusic': includeMusic, 'filterPlanToWatch': filterPlanToWatch, 'logitWeight': logitWeight, 'nicheBoostFactor': nicheBoostFactor, 'popularityAttenuationFactor': 0.0008, 'excludedIds': <int>[], 'excludedGenreIds': <int>[]};
+  Map<String, dynamic> toJson() => {'model': model, 'includeExtraSeasons': includeExtraSeasons, 'includeONAsOVAsSpecials': includeONAsOVAspecials, 'includeMovies': includeMovies, 'includeMusic': includeMusic, 'filterPlanToWatch': filterPlanToWatch, 'logitWeight': logitWeight, 'nicheBoostFactor': nicheBoostFactor, 'popularityAttenuationFactor': 0.0008, 'excludedIds': <int>[], 'excludedGenreIds': <int>[]};
 }
 class _AmeoClient {
   static const endpoint = 'https://anime.ameo.dev/recommendation/recommendation';
@@ -334,7 +334,7 @@ class _AmeoClient {
           'modelName': settings.model,
           'includeContributors': true,
           'includeExtraSeasons': settings.includeExtraSeasons,
-          'includeONAsOVAspecials': settings.includeONAsOVAspecials,
+          'includeONAsOVAsSpecials': settings.includeONAsOVAspecials,
           'includeMovies': settings.includeMovies,
           'includeMusic': settings.includeMusic,
           'profileSource': 'mal',
@@ -353,7 +353,19 @@ class _AmeoClient {
       return result;
     } catch (e) {
       if (cached != null) { try { final stale = decode(jsonDecode(cached) as Map<String, dynamic>); if (stale.isNotEmpty) return stale; } catch (_) {} }
-      final diagnostics = ['endpoint=$endpoint', 'method=POST', 'phase=$phase', 'http_status=${statusCode == 0 ? 'unavailable' : statusCode}', 'elapsed_ms=${watch.elapsedMilliseconds}', 'content_type=${contentType.isEmpty ? 'unavailable' : contentType}', 'cache_available=${cached != null}', 'exception_type=${e.runtimeType}', 'message=${_safeError(e.toString())}', if (responseBody.isNotEmpty) 'response_body=${_safeError(responseBody.length > 1200 ? responseBody.substring(0, 1200) : responseBody)}'].join('\n');
+      final diagnostics = [
+        'endpoint=$endpoint',
+        'method=POST',
+        'phase=$phase',
+        'http_status=${statusCode == 0 ? 'unavailable' : statusCode}',
+        'elapsed_ms=${watch.elapsedMilliseconds}',
+        'content_type=${contentType.isEmpty ? 'unavailable' : contentType}',
+        'cache_available=${cached != null}',
+        'exception_type=${e.runtimeType}',
+        'message=${_safeError(e.toString())}',
+        if (responseBody.isNotEmpty)
+          'response_body=${_safeError(responseBody)}',
+      ].join('\n');
       throw _AmeoRequestException(diagnostics);
     }
   }
@@ -396,4 +408,11 @@ Future<String> _resolveAmeoUsername(SharedPreferences prefs) async {
     return '';
   }
 }
-String _safeError(String value) => value.replaceAll(RegExp(r'[\r\n]+'), ' ').replaceAll(RegExp(r'(access_token|refresh_token|authorization)\s*[:=]\s*[^,; ]+', caseSensitive: false), r'$1=[redacted]');
+// Keep server response line breaks intact for full, copyable diagnostics while redacting credentials.
+String _safeError(String value) => value.replaceAll(
+      RegExp(
+        r'(access_token|refresh_token|authorization)\s*[:=]\s*("[^"]*"|[^,;\r\n]+)',
+        caseSensitive: false,
+      ),
+      r'$1=[redacted]',
+    );
