@@ -79,7 +79,7 @@ class _AmeoRecommendationSectionState extends State<AmeoRecommendationSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SB.h15,
+        const SizedBox(height: 15),
         Padding(
           padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
           child: Row(
@@ -98,7 +98,7 @@ class _AmeoRecommendationSectionState extends State<AmeoRecommendationSection> {
             ],
           ),
         ),
-        SB.h15,
+        const SizedBox(height: 15),
         if (username.isEmpty)
           Padding(
             padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
