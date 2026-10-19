@@ -171,10 +171,12 @@ class _AmeoRecommendationPageState extends State<AmeoRecommendationPage> {
   void initState() { super.initState(); initialize(); }
   Future<void> initialize() async {
     final prefs = await SharedPreferences.getInstance();
-    usernameController.text = await _resolveAmeoUsername(prefs);
+    final resolvedUsername = await _resolveAmeoUsername(prefs);
+    if (!mounted) return;
+    usernameController.text = resolvedUsername;
     settings = _AmeoSettings.fromPrefs(prefs);
-    if (mounted) setState(() {});
-    if (usernameController.text.trim().isNotEmpty) refresh(force: false);
+    setState(() {});
+    if (resolvedUsername.trim().isNotEmpty) refresh(force: false);
   }
   Future<void> save() async {
     final prefs = await SharedPreferences.getInstance();
@@ -188,6 +190,7 @@ class _AmeoRecommendationPageState extends State<AmeoRecommendationPage> {
       return;
     }
     await save();
+    if (!mounted) return;
     setState(() { loading = true; error = null; technicalLog = null; });
     try {
       final result = await _AmeoClient().recommend(name, settings, force: force);
@@ -251,10 +254,15 @@ class _AmeoRecommendationPageState extends State<AmeoRecommendationPage> {
             SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('ONA / OVA / Specials'), value: draftSettings.includeONAsOVAspecials, onChanged: (v) => setSheetState(() => draftSettings = draftSettings.copyWith(includeONAsOVAspecials: v))),
             SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Anime musik'), value: draftSettings.includeMusic, onChanged: (v) => setSheetState(() => draftSettings = draftSettings.copyWith(includeMusic: v))),
             SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Filter Plan to Watch'), value: draftSettings.filterPlanToWatch, onChanged: (v) => setSheetState(() => draftSettings = draftSettings.copyWith(filterPlanToWatch: v))),
+            if (draftSettings.model == 'legacy')
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 4),
+                child: Text('Model Legacy tidak menggunakan Logit weight atau Niche boost.'),
+              ),
             Text('Logit weight: ${draftSettings.logitWeight.toStringAsFixed(2)}'),
-            Slider(value: draftSettings.logitWeight, min: 0, max: 1, divisions: 100, onChanged: (v) => setSheetState(() => draftSettings = draftSettings.copyWith(logitWeight: v))),
+            Slider(value: draftSettings.logitWeight, min: 0, max: 1, divisions: 100, onChanged: draftSettings.model == 'legacy' ? null : (v) => setSheetState(() => draftSettings = draftSettings.copyWith(logitWeight: v))),
             Text('Niche boost factor: ${draftSettings.nicheBoostFactor.toStringAsFixed(2)}'),
-            Slider(value: draftSettings.nicheBoostFactor, min: 0, max: 1, divisions: 100, onChanged: (v) => setSheetState(() => draftSettings = draftSettings.copyWith(nicheBoostFactor: v))),
+            Slider(value: draftSettings.nicheBoostFactor, min: 0, max: 1, divisions: 100, onChanged: draftSettings.model == 'legacy' ? null : (v) => setSheetState(() => draftSettings = draftSettings.copyWith(nicheBoostFactor: v))),
             const SizedBox(height: 8),
             SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: () { usernameController.text = draftUsername.trim(); settings = draftSettings; Navigator.of(sheetContext).pop(true); }, icon: const Icon(Icons.check), label: const Text('Terapkan pengaturan'))),
           ])),
@@ -384,7 +392,14 @@ class _AmeoAnime {
     final picture = json['main_picture'];
     final image = picture is Map ? (picture['large'] ?? picture['medium'] ?? '').toString() : '';
     final title = (json['title'] ?? json['title_english'] ?? 'Anime #$id').toString();
-    final rawScore = rec is Map ? (rec['score'] ?? rec['predictedScore'] ?? rec['predicted_score']) : null;
+    // Sprout's `score` is a ranking score, not the predicted rating shown in the UI.
+    // Prefer the explicit prediction fields and keep ranking score separate.
+    final rawScore = rec is Map
+        ? (rec['predictedRating'] ??
+            rec['predicted_rating'] ??
+            rec['predictedScore'] ??
+            rec['predicted_score'])
+        : null;
     final BaseNode node = BaseNode.fromJson(
       <String, dynamic>{'node': <String, dynamic>{...json, 'id': id}},
       category: 'anime',
@@ -428,9 +443,18 @@ class _AmeoClient {
     final cacheKey = 'ameo_cache_' + base64Url.encode(utf8.encode(username + '|' + jsonEncode(settings.toJson())));
     final cached = prefs.getString(cacheKey); final cachedAt = prefs.getInt(cacheKey + '_at') ?? 0;
     if (!force && cached != null && DateTime.now().millisecondsSinceEpoch - cachedAt < ttl.inMilliseconds) {
-      final cachedItems = decode(jsonDecode(cached) as Map<String, dynamic>);
-      await _mergeCachedListStatuses(cachedItems);
-      return cachedItems;
+      try {
+        final cachedJson = jsonDecode(cached);
+        if (cachedJson is Map<String, dynamic>) {
+          final cachedItems = decode(cachedJson);
+          await _mergeCachedListStatuses(cachedItems);
+          return cachedItems;
+        }
+      } catch (_) {
+        // Ignore corrupted cache and fall through to a fresh network request.
+      }
+      await prefs.remove(cacheKey);
+      await prefs.remove(cacheKey + '_at');
     }
     final watch = Stopwatch()..start(); var phase = 'request'; var statusCode = 0; var contentType = ''; var responseBody = '';
     try {
@@ -468,7 +492,20 @@ class _AmeoClient {
       await prefs.setString(cacheKey, jsonEncode(decoded)); await prefs.setInt(cacheKey + '_at', DateTime.now().millisecondsSinceEpoch);
       return result;
     } catch (e) {
-      if (cached != null) { try { final stale = decode(jsonDecode(cached) as Map<String, dynamic>); if (stale.isNotEmpty) { await _mergeCachedListStatuses(stale); return stale; } } catch (_) {} }
+      if (cached != null) {
+        try {
+          final staleJson = jsonDecode(cached);
+          if (staleJson is Map<String, dynamic>) {
+            final stale = decode(staleJson);
+            if (stale.isNotEmpty) {
+              await _mergeCachedListStatuses(stale);
+              return stale;
+            }
+          }
+        } catch (_) {
+          // Invalid stale cache must not mask the original request failure.
+        }
+      }
       final diagnostics = [
         'endpoint=$endpoint',
         'method=POST',
