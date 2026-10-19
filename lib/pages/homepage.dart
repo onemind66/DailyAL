@@ -6,6 +6,7 @@ import 'package:dailyanimelist/constant.dart';
 import 'package:dailyanimelist/generated/l10n.dart';
 import 'package:dailyanimelist/main.dart';
 import 'package:dailyanimelist/pages/home/newswidget.dart';
+import 'package:dailyanimelist/features/ameo/ameo_recommendation.dart';
 import 'package:dailyanimelist/pages/search/all_genre_widget.dart';
 import 'package:dailyanimelist/pages/search/allrankingwidget.dart';
 import 'package:dailyanimelist/screens/generalsearchscreen.dart';
@@ -195,10 +196,11 @@ class _HomePageState extends State<HomePage> {
           padding: ResponsiveHelper.getContentPadding(context),
           sliver: contentSliverBuilder(),
         ),
+        SliverToBoxAdapter(child: AmeoRecommendationSection()),
         SliverToBoxAdapter(child: SB.h80)
       ];
     }
-    return [contentSliverBuilder(), SliverToBoxAdapter(child: SB.h80)];
+    return [contentSliverBuilder(), SliverToBoxAdapter(child: AmeoRecommendationSection()), SliverToBoxAdapter(child: SB.h80)];
   }
 
   SliverLayoutBuilder _buildAppBar([bool isTablet = false]) {
