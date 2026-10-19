@@ -1685,11 +1685,16 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
 
   Widget _filterSection() {
     try {
-      return ExpandedSection(
-        expand: showFilter,
-        child: Container(
-          width: double.infinity,
-          child: SortFilterPopup(
+      return SafeArea(
+        // Keep the inline filter panel above Android's system navigation area.
+        // This only adds safe-area space; filter actions and close behavior stay unchanged.
+        top: false,
+        bottom: true,
+        child: ExpandedSection(
+          expand: showFilter,
+          child: Container(
+            width: double.infinity,
+            child: SortFilterPopup(
             sortFilterDisplay: _sortFilterDisplay,
             onSortFilterChange: _onFilterChange,
             showText: category.equals("featured"),
@@ -1713,6 +1718,7 @@ class _GeneralSearchScreenState extends State<GeneralSearchScreen>
                   showFilter = false;
                 });
             },
+            ),
           ),
         ),
       );
