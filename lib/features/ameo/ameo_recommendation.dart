@@ -40,7 +40,18 @@ class _AmeoRecommendationSectionState extends State<AmeoRecommendationSection> {
   @override
   void initState() {
     super.initState();
+    MalUser.listStatusRevision.addListener(_onListStatusChanged);
     load();
+  }
+
+  void _onListStatusChanged() {
+    if (mounted) load();
+  }
+
+  @override
+  void dispose() {
+    MalUser.listStatusRevision.removeListener(_onListStatusChanged);
+    super.dispose();
   }
 
   Future<void> load({bool force = false}) async {
@@ -168,7 +179,18 @@ class _AmeoRecommendationPageState extends State<AmeoRecommendationPage> {
   String? error;
   String? technicalLog;
   @override
-  void initState() { super.initState(); initialize(); }
+  void initState() {
+    super.initState();
+    MalUser.listStatusRevision.addListener(_onListStatusChanged);
+    initialize();
+  }
+
+  void _onListStatusChanged() {
+    if (mounted && usernameController.text.trim().isNotEmpty) {
+      refresh(force: false);
+    }
+  }
+
   Future<void> initialize() async {
     final prefs = await SharedPreferences.getInstance();
     final resolvedUsername = await _resolveAmeoUsername(prefs);
@@ -277,7 +299,11 @@ class _AmeoRecommendationPageState extends State<AmeoRecommendationPage> {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Log teknis disalin')));
   }
   @override
-  void dispose() { usernameController.dispose(); super.dispose(); }
+  void dispose() {
+    MalUser.listStatusRevision.removeListener(_onListStatusChanged);
+    usernameController.dispose();
+    super.dispose();
+  }
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Rekomendasi Ameo'), actions: [

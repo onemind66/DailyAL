@@ -87,6 +87,34 @@ class MalApi {
     final cachedStatuses = <int, dynamic>{};
     final statusUpdatedAt = <int, DateTime>{};
 
+    // A successful list mutation is more authoritative than a previously
+    // cached list response. Preserve per-ID snapshots even for filtered lists.
+    final statusSnapshotPrefix = 'dailyal_cached_list_status_${category}_';
+    for (final key in preferences.getKeys()) {
+      if (!key.startsWith(statusSnapshotPrefix)) continue;
+      final id = int.tryParse(key.substring(statusSnapshotPrefix.length));
+      if (id == null) continue;
+      try {
+        final snapshotJson = preferences.getString(key);
+        if (snapshotJson == null) continue;
+        final snapshot = jsonDecode(snapshotJson);
+        if (snapshot is! Map<String, dynamic>) continue;
+        final updatedAt = DateTime.tryParse(snapshot['updated_at']?.toString() ?? '');
+        if (snapshot['_deleted'] == true) {
+          cachedStatuses[id] = null;
+          statusUpdatedAt[id] = updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          continue;
+        }
+        if (snapshot['status'] == null) continue;
+        cachedStatuses[id] = category == 'anime'
+            ? MyAnimeListStatus.fromJson(snapshot)
+            : MyMangaListStatus.fromJson(snapshot);
+        if (updatedAt != null) statusUpdatedAt[id] = updatedAt;
+      } catch (e) {
+        logDal(e);
+      }
+    }
+
     for (final key in preferences.getKeys()) {
       if (!key.startsWith(cachePrefix)) continue;
       try {
@@ -165,22 +193,21 @@ class MalApi {
       final content = baseNode.content;
       final id = content?.id;
       if (id == null) continue;
-      final currentStatus = category == 'anime'
-          ? (content is AnimeDetailed ? content.myListStatus?.status : null)
-          : (content is MangaDetailed ? content.myListStatus?.status : null);
-      final baseStatus = (baseNode.myListStatus as dynamic)?.status;
-      if ((currentStatus != null || baseStatus != null) ||
-          !cachedStatuses.containsKey(id)) {
-        continue;
-      }
+      if (!cachedStatuses.containsKey(id)) continue;
 
+      // Prefer the latest status snapshot even when the response already
+      // contains an older non-null my_list_status value. A null snapshot
+      // intentionally represents a successful removal from the list.
       final cachedStatus = cachedStatuses[id];
       baseNode.myListStatus = cachedStatus;
-      if (content is AnimeDetailed && cachedStatus is MyAnimeListStatus) {
-        content.myListStatus = cachedStatus;
-      } else if (content is MangaDetailed &&
-          cachedStatus is MyMangaListStatus) {
-        content.myListStatus = cachedStatus;
+      if (content is AnimeDetailed) {
+        content.myListStatus = cachedStatus is MyAnimeListStatus
+            ? cachedStatus
+            : null;
+      } else if (content is MangaDetailed) {
+        content.myListStatus = cachedStatus is MyMangaListStatus
+            ? cachedStatus
+            : null;
       }
     }
   }

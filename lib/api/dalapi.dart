@@ -153,7 +153,35 @@ class DalApi {
   }
 
   Future<DataUnion?> getCharaPeopleInfo(int id, DataUnionType type) async {
-    return JikanV4Result.fromJson(type, await httpGet('${type.name}/$id')).data;
+    final endpoint = '${type.name}/$id';
+
+    DataUnion? parseUsable(dynamic response) {
+      if (response == null) return null;
+      final data = JikanV4Result.fromJson(type, response).data;
+      if (type == DataUnionType.people &&
+          data is PeopleV4Data &&
+          (data.name?.trim().isNotEmpty ?? false)) {
+        return data;
+      }
+      if (type == DataUnionType.character &&
+          data is CharacterV4Data &&
+          (data.name?.trim().isNotEmpty ?? false)) {
+        return data;
+      }
+      return null;
+    }
+
+    // An empty or malformed cached payload must not hide a fresh response.
+    try {
+      final cached = await httpGet(endpoint, true);
+      final data = parseUsable(cached);
+      if (data != null) return data;
+    } catch (e) {
+      logDal('[Jikan details] Invalid cached response for $endpoint: $e');
+    }
+
+    final fresh = await httpGet(endpoint, false);
+    return parseUsable(fresh);
   }
 
   Future<dynamic> getRecomData({

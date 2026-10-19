@@ -8,8 +8,91 @@ import 'package:dailyanimelist/main.dart';
 import 'package:dailyanimelist/user/user.dart';
 import 'package:dailyanimelist/widgets/search/filtermodal.dart';
 import 'package:dal_commons/dal_commons.dart';
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class MalUser {
+  /// Broadcasts successful MAL list edits and refreshes local list caches.
+  static final ValueNotifier<int> listStatusRevision = ValueNotifier<int>(0);
+
+  static Future<void> _cacheListStatusMutation(
+    String category,
+    int id,
+    Map<String, dynamic>? statusJson,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final updatedAt = statusJson?['updated_at']?.toString() ??
+        DateTime.now().toIso8601String();
+    final snapshotKey = 'dailyal_cached_list_status_${category}_${id}';
+    if (statusJson == null) {
+      await prefs.setString(snapshotKey, jsonEncode({
+        '_deleted': true,
+        'updated_at': updatedAt,
+      }));
+    } else {
+      await prefs.setString(snapshotKey, jsonEncode({
+        ...statusJson,
+        'updated_at': updatedAt,
+      }));
+    }
+
+    final cachePrefix = '${CredMal.myEndPoint}${category}list?';
+    for (final key in prefs.getKeys()) {
+      if (!key.startsWith(cachePrefix)) continue;
+      try {
+        final raw = prefs.getString(key);
+        if (raw == null) continue;
+        final cached = jsonDecode(raw);
+        if (cached is! Map<String, dynamic> || cached['data'] is! List) {
+          continue;
+        }
+        final data = cached['data'] as List;
+        var changed = false;
+        for (var index = data.length - 1; index >= 0; index--) {
+          final item = data[index];
+          if (item is! Map<String, dynamic> ||
+              item['node'] is! Map<String, dynamic>) {
+            continue;
+          }
+          final nodeId = int.tryParse('${item['node']['id']}');
+          if (nodeId != id) continue;
+
+          if (statusJson == null) {
+            data.removeAt(index);
+            changed = true;
+            continue;
+          }
+
+          final queryStatus = Uri.tryParse(key)?.queryParameters['status'];
+          final newStatus = statusJson['status']?.toString();
+          if (queryStatus != null && queryStatus != newStatus) {
+            data.removeAt(index);
+            changed = true;
+            continue;
+          }
+          final existingStatus = item['list_status'];
+          item['list_status'] = <String, dynamic>{
+            if (existingStatus is Map<String, dynamic>) ...existingStatus,
+            ...statusJson,
+            'updated_at': updatedAt,
+          };
+          changed = true;
+        }
+        if (changed) await prefs.setString(key, jsonEncode(cached));
+      } catch (e) {
+        logDal(e);
+      }
+    }
+
+    // Ameo recommendations are filtered using MAL list state, especially
+    // Plan to Watch. Invalidate every settings variant after anime-list edits.
+    if (category == 'anime') {
+      for (final key in prefs.getKeys().toList()) {
+        if (key.startsWith('ameo_cache_')) await prefs.remove(key);
+      }
+      listStatusRevision.value++;
+    }
+  }
   static Future<UserProf> getUserInfo(
       {List<String>? fields,
       bool fromCache = false,
@@ -83,8 +166,11 @@ class MalUser {
 
     try {
       var response = await MalConnect.httpPutAsync(url, body: body);
-      if (response.statusCode == 200 && response.body != null) {
-        return MyAnimeListStatus.fromJson(jsonDecode(response.body));
+      if (response.statusCode == 200 && response.body.isNotEmpty) {
+        final json = jsonDecode(response.body);
+        if (json is! Map<String, dynamic>) return null;
+        await _cacheListStatusMutation('anime', animeId, json);
+        return MyAnimeListStatus.fromJson(json);
       }
     } catch (e) {
       logDal(e);
@@ -126,8 +212,11 @@ class MalUser {
     if (rereadValue != null) body["reread_value"] = rereadValue.toString();
 
     var response = await MalConnect.httpPutAsync(url, body: body);
-    if (response.statusCode == 200 && response.body != null) {
-      return MyMangaListStatus.fromJson(jsonDecode(response.body));
+    if (response.statusCode == 200 && response.body.isNotEmpty) {
+      final json = jsonDecode(response.body);
+      if (json is! Map<String, dynamic>) return null;
+      await _cacheListStatusMutation('manga', mangaId, json);
+      return MyMangaListStatus.fromJson(json);
     } else {
       logDal(response.body);
     }
@@ -229,6 +318,7 @@ class MalUser {
       var response = await MalConnect.delete(
           '${CredMal.endPoint}$category/$id/my_list_status');
       if (response != null && response.statusCode == 200) {
+        await _cacheListStatusMutation(category, id, null);
         return true;
       }
     } catch (e) {
