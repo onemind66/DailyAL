@@ -294,7 +294,7 @@ class NotificationService {
     DateTime nowDate,
     String body,
     NotificationChannel channel,
-  ) {
+  ) async {
     String title = "Ep: ${scheduleData.episode} of ${node.title} is out!";
 
     var nextDate =

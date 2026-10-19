@@ -517,13 +517,15 @@ class _ContentEditWidgetState extends State<ContentEditWidget> {
           : await MalUser.updateMyMangaListStatus(content.id, score: value);
 
       logDal(
-          '[ScoreUpdate] response received success=${status != null} returnedScore=${status?.score}');
+          '[ScoreUpdate] response received success=${status != null} requestedScore=$value');
       if (status != null) {
         result = true;
         updateListStatus(status);
         if (mounted) {
           setState(() {
-            starValue = status.score;
+            // MyListStatus is a mixin and does not expose a score getter.
+            // The successful request confirms the score supplied above.
+            starValue = value;
           });
         }
       } else {
