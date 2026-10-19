@@ -53,7 +53,10 @@ class CharacterV4Data implements DataUnion {
         json['images'] != null ? Images.fromJson(json['images']) : null;
     name = json['name'];
     nameKanji = json['name_kanji'];
-    nicknames = json['nicknames'].cast<String>();
+    final rawNicknames = json['nicknames'];
+    nicknames = rawNicknames is List
+        ? rawNicknames.whereType<String>().toList()
+        : <String>[];
     favorites = json['favorites'];
     about = json['about'];
     if (json['anime'] != null) {

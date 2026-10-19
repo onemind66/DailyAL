@@ -42,7 +42,10 @@ class PeopleV4Data implements DataUnion {
     name = json['name'];
     givenName = json['given_name'];
     familyName = json['family_name'];
-    alternateNames = json['alternate_names'].cast<String>();
+    final rawAlternateNames = json['alternate_names'];
+    alternateNames = rawAlternateNames is List
+        ? rawAlternateNames.whereType<String>().toList()
+        : <String>[];
     birthday = json['birthday'];
     favorites = json['favorites'];
     about = json['about'];

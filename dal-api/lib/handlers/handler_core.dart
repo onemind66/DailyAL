@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dal_api/cache/cache_manager.dart';
 import 'package:dal_api/handlers/environemt.dart';
@@ -292,9 +293,18 @@ class HandlerCore {
     Request request,
   ) async {
     final id = path.pathParam<int>(request.url.path);
-    return await HttpConnect.retryGetChecked(
-            '${Constants.jikanV4}${type.name}/$id/full', {})
-        as Map<String, dynamic>;
+    final endpoint = '${Constants.jikanV4}${type.name}/$id/full';
+    try {
+      final response = await HttpConnect.retryGetChecked(endpoint, {});
+      if (response == null) {
+        throw HttpException('Jikan returned an empty response for $endpoint');
+      }
+      return response;
+    } catch (error, stackTrace) {
+      logDal('Character/people details failed: endpoint=$endpoint; '
+          'error=${error.runtimeType}: $error; stack=$stackTrace');
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>> _handleReviews(

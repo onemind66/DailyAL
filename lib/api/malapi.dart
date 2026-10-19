@@ -160,8 +160,9 @@ class MalApi {
   /// search results that did not come with `my_list_status` (Jikan genre
   /// search, html "all" search, suggestions, ...).
   ///
-  /// When [fetchIfMissing] is true and the user's list is not cached yet, the
-  /// list is downloaded once (it is cached by [MalConnect.getContent]).
+  /// When [fetchIfMissing] is true and one or more requested IDs have no cached
+  /// status, the user's full list is downloaded once per category/session. This
+  /// also handles partial caches and per-item mutation snapshots.
   static Future<void> mergeCachedMyListStatus(
     List<BaseNode>? nodes,
     String category, {
@@ -175,7 +176,11 @@ class MalApi {
     }
 
     var cachedStatuses = await _readCachedMyListStatuses(category);
-    if (cachedStatuses.isEmpty &&
+    final hasMissingRequestedIds = nodes.any((node) {
+      final id = node.content?.id;
+      return id != null && !cachedStatuses.containsKey(id);
+    });
+    if (hasMissingRequestedIds &&
         fetchIfMissing &&
         !_myListFetchedCategories.contains(category)) {
       _myListFetchedCategories.add(category);

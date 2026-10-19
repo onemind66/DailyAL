@@ -154,34 +154,56 @@ class DalApi {
 
   Future<DataUnion?> getCharaPeopleInfo(int id, DataUnionType type) async {
     final endpoint = '${type.name}/$id';
+    final diagnostics = <String>[
+      'category=${type.name}',
+      'mal_id=$id',
+      'dal_endpoint=$endpoint',
+    ];
 
-    DataUnion? parseUsable(dynamic response) {
-      if (response == null) return null;
+    DataUnion? parseUsable(dynamic response, String source) {
+      diagnostics.add('source=$source');
+      if (response == null) {
+        throw StateError('DAL returned null for $endpoint (source=$source)');
+      }
+      if (response is! Map<String, dynamic>) {
+        throw FormatException('Expected JSON object, got ${response.runtimeType}');
+      }
       final data = JikanV4Result.fromJson(type, response).data;
-      if (type == DataUnionType.people &&
-          data is PeopleV4Data &&
-          (data.name?.trim().isNotEmpty ?? false)) {
-        return data;
-      }
-      if (type == DataUnionType.character &&
-          data is CharacterV4Data &&
-          (data.name?.trim().isNotEmpty ?? false)) {
-        return data;
-      }
+      if (type == DataUnionType.people && data is PeopleV4Data &&
+          (data.name?.trim().isNotEmpty ?? false)) return data;
+      if (type == DataUnionType.character && data is CharacterV4Data &&
+          (data.name?.trim().isNotEmpty ?? false)) return data;
+      diagnostics.add('response_keys=${response.keys.join(',')}');
+      diagnostics.add('data_type=${data?.runtimeType ?? 'null'}');
+      diagnostics.add('name=${data is PeopleV4Data ? data.name : data is CharacterV4Data ? data.name : 'null'}');
       return null;
     }
 
-    // An empty or malformed cached payload must not hide a fresh response.
+    // Invalid cached data is diagnostic-only; always try a fresh response next.
     try {
       final cached = await httpGet(endpoint, true);
-      final data = parseUsable(cached);
+      final data = parseUsable(cached, 'cache');
       if (data != null) return data;
-    } catch (e) {
-      logDal('[Jikan details] Invalid cached response for $endpoint: $e');
+      diagnostics.add('cache_result=unusable');
+    } catch (error, stackTrace) {
+      logDal('[Jikan details] Cached response failed for $endpoint: $error');
+      diagnostics.add('cache_exception=${error.runtimeType}: $error');
+      diagnostics.add('cache_stack=$stackTrace');
     }
 
-    final fresh = await httpGet(endpoint, false);
-    return parseUsable(fresh);
+    try {
+      final fresh = await httpGet(endpoint, false);
+      final data = parseUsable(fresh, 'network');
+      if (data != null) return data;
+      diagnostics.add('network_result=unusable');
+      throw StateError('No usable data returned');
+    } catch (error, stackTrace) {
+      diagnostics.add('network_exception=${error.runtimeType}: $error');
+      diagnostics.add('network_stack=$stackTrace');
+      final message = diagnostics.join('\\n');
+      logDal('[Jikan details] $message');
+      Error.throwWithStackTrace(StateError(message), stackTrace);
+    }
   }
 
   Future<dynamic> getRecomData({

@@ -20,6 +20,7 @@ import 'package:dailyanimelist/widgets/translator.dart';
 import 'package:dailyanimelist/util/responsive_helper.dart';
 import 'package:dal_commons/dal_commons.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../main.dart';
 
@@ -57,6 +58,7 @@ class _CharacterScreenState extends State<CharacterScreen> {
   int _currentImageIndex = 0;
   bool _isDetailsLoading = true;
   String? _detailsError;
+  String? _detailsDiagnosticLog;
 
   @override
   void initState() {
@@ -159,11 +161,23 @@ class _CharacterScreenState extends State<CharacterScreen> {
         '[CharacterScreen] Failed to load ${chara} details (malId=$id, errorType=${error.runtimeType}): $error');
     debugPrintStack(stackTrace: stackTrace);
     if (!mounted) return;
+    final reason = error is _InvalidDetailsResponseException
+        ? 'The service returned no usable data for this ID.'
+        : '${error.runtimeType}: $error';
+    final diagnostics = [
+      'DailyAL Character/Person details diagnostic',
+      'category=${chara.equals('character') ? 'character' : 'people'}',
+      'mal_id=$id',
+      'timestamp=${DateTime.now().toIso8601String()}',
+      'reason=$reason',
+      'exception_type=${error.runtimeType}',
+      'exception=$error',
+      'stack_trace=$stackTrace',
+    ].join('\\n');
     setState(() {
       _isDetailsLoading = false;
-      _detailsError = error is _InvalidDetailsResponseException
-          ? 'The service returned no usable data for this ID.'
-          : 'A network, server, or response-parsing error occurred.';
+      _detailsError = reason;
+      _detailsDiagnosticLog = diagnostics;
     });
   }
 
@@ -172,6 +186,7 @@ class _CharacterScreenState extends State<CharacterScreen> {
     setState(() {
       _isDetailsLoading = true;
       _detailsError = null;
+      _detailsDiagnosticLog = null;
       characterInfo = null;
       personInfo = null;
       characterPics.clear();
@@ -293,6 +308,46 @@ class _CharacterScreenState extends State<CharacterScreen> {
                       '• If this continues, verify the MAL ID and report the ID with this message.',
                     ),
                   ),
+                  if (_detailsDiagnosticLog != null) ...[
+                    const SizedBox(height: 16),
+                    ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      title: const Text('Technical diagnostics'),
+                      subtitle: const Text('Full error and stack trace'),
+                      children: [
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () async {
+                              await Clipboard.setData(ClipboardData(
+                                  text: _detailsDiagnosticLog ?? ''));
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Full diagnostic log copied'),
+                                  ),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.copy),
+                            label: const Text('Copy full log'),
+                          ),
+                        ),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: SelectableText(
+                            _detailsDiagnosticLog!,
+                            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 20),
                   FilledButton.icon(
                     onPressed: _isDetailsLoading ? null : _retryDetailsLoad,

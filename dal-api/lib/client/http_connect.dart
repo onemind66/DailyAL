@@ -34,13 +34,24 @@ class HttpConnect {
     String url,
     Map<String, String> headers,
   ) async {
-    var response = await retryGet(url, headers);
+    final response = await retryGet(url, headers);
     if (response.statusCode != 200) {
-      logDal(response.body);
-      return null;
-    } else {
-      return jsonDecode(response.body);
+      final body = response.body.length > 4000
+          ? '${response.body.substring(0, 4000)}…[truncated]'
+          : response.body;
+      final message = 'GET $url failed: HTTP ${response.statusCode}; '
+          'content-type=${response.headers['content-type'] ?? 'unknown'}; '
+          'body=$body';
+      logDal(message);
+      throw HttpException(message, Uri.parse(url));
     }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw FormatException(
+        'GET $url returned JSON root ${decoded.runtimeType}, expected object',
+      );
+    }
+    return decoded;
   }
 
   static Future<T?> htmlPage<T>(
