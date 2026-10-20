@@ -17,6 +17,13 @@ import 'package:http/http.dart' as http;
 import 'package:retry/retry.dart';
 
 class MalConnect {
+  static bool _isJikanDetailRequest(String url) {
+    final path = Uri.tryParse(url)?.path ?? '';
+    return RegExp(r'^/(?:v4/)?(?:characters?|people)/[0-9]+(?:/full)?/?$').hasMatch(path);
+  }
+  static String _diagnosticPath(String url) =>
+      Uri.tryParse(url)?.path ?? '[invalid-uri]';
+
   static const _options = RetryOptions(maxAttempts: 8);
   static const _retryDuration = const Duration(seconds: 10);
 
@@ -142,8 +149,12 @@ class MalConnect {
     bool timeoutCache = false;
     dynamic cachedResult;
 
+    final detail = _isJikanDetailRequest(url);
+    final path = _diagnosticPath(url);
+    final watch = Stopwatch()..start();
     if (fromCache) {
-      logDal("Cache ->> $url");
+      if (detail) logDal('[Jikan HTTP] cache_lookup path=$path');
+      else logDal("Cache ->> $url");
       Map<String, dynamic>? _result =
           await CacheManager.instance.getCachedContent(url);
       if (_result != null) {
@@ -154,11 +165,13 @@ class MalConnect {
         )) {
           _result["url"] = url;
           _result["fromCache"] = true;
+          if (detail) logDal('[Jikan HTTP] cache_hit path=$path keys=${_result.keys.join(',')}');
           return _result;
         }
       }
     }
-    logDal("API ->> $url");
+    if (detail) logDal('[Jikan HTTP] network_request path=$path retry=$retryOnFail');
+    else logDal("API ->> $url");
     if (headers == null) {
       headers = new Map();
     }
@@ -193,24 +206,27 @@ class MalConnect {
           timeoutCache = true;
         },
       );
+      if (detail) logDal('[Jikan HTTP] network_response path=$path status=${response.statusCode} '
+          'content_type=${response.headers['content-type'] ?? 'unknown'} '
+          'body_bytes=${response.bodyBytes.length} elapsed_ms=${watch.elapsedMilliseconds}');
       if (response.statusCode == 200) {
         if (timeoutCache) {
-          logDal('from timeoutCache --> $url');
+          if (detail) logDal('[Jikan HTTP] timeout_cache_fallback path=$path');
           return cachedResult;
         } else {
-          Map<String, dynamic> result =
-              timeoutCache ? cachedResult : jsonDecode(response.body) ?? {};
+          Map<String, dynamic> result = jsonDecode(response.body) ?? {};
           result["url"] = url;
           result["fromCache"] = false;
           CacheManager.instance.setCachedJson(url, result);
           result["lastUpdated"] = DateTime.now().toString();
+          if (detail) logDal('[Jikan HTTP] json_decoded path=$path root_keys=${result.keys.join(',')}');
           return result;
         }
-      } else {
-        return null;
       }
-    } catch (e) {
-      logDal(e);
+      return null;
+    } catch (e, stack) {
+      if (detail) logDal('[Jikan HTTP] network_exception path=$path type=${e.runtimeType} stack=$stack');
+      else logDal(e);
       return null;
     }
   }

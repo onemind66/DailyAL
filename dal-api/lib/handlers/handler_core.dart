@@ -49,7 +49,7 @@ class HandlerCore {
   Future<Map<String, dynamic>?> handleRequestAsJson(Request request) async {
     try {
       logDal(request.method);
-      logDal(request.url);
+      logDal(request.url.path);
       final uri = request.url;
       final url = uri.path;
       PathMatcher matcher = _pathMatchers.firstWhere(
@@ -57,12 +57,21 @@ class HandlerCore {
         orElse: () => _noSuchPath(uri.path),
       );
       return await CacheManager.instance.getCachedResult(
-        request,
-        matcher,
-        orElse: () => matcher.handler(matcher, request),
-      );
-    } catch (e) {
-      logDal(e);
+        request, matcher, orElse: () => matcher.handler(matcher, request));
+    } catch (error, stack) {
+      final uri = request.url;
+      final detail = RegExp(r'^/(?:characters?|people)/[0-9]+/?$').hasMatch(uri.path);
+      final id = DateTime.now().microsecondsSinceEpoch.toString();
+      if (detail) {
+        logDal('[Jikan details] request_id=$id path=${uri.path} '
+            'exception_type=${error.runtimeType} message=$error stack=$stack');
+        return {'error': true, 'diagnostic': {
+          'request_id': id, 'endpoint': uri.path,
+          'exception_type': error.runtimeType.toString(),
+          'timestamp': DateTime.now().toIso8601String(),
+        }};
+      }
+      logDal(error);
       return {'error': true};
     }
   }
@@ -70,10 +79,11 @@ class HandlerCore {
   Future<Response> handleRequest(Request request) async {
     final json = await handleRequestAsJson(request);
     if (json != null && (json['error'] ?? false)) {
-      return Response.internalServerError(body: 'Internal Server Error');
-    } else {
-      return okResponse(json ?? {});
+      return Response.internalServerError(
+        body: jsonEncode(json),
+        headers: {'content-type': 'application/json; charset=utf-8'});
     }
+    return okResponse(json ?? {});
   }
 
   Future<String?> handleRequestAsString(Uri uri) async {

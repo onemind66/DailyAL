@@ -155,56 +155,82 @@ class DalApi {
   Future<DataUnion?> getCharaPeopleInfo(int id, DataUnionType type) async {
     final endpoint = '${type.name}/$id';
     final diagnostics = <String>[
-      'category=${type.name}',
-      'mal_id=$id',
-      'dal_endpoint=$endpoint',
+      'category=${type.name}', 'mal_id=$id', 'dal_endpoint=$endpoint',
+      'started_at=${DateTime.now().toIso8601String()}',
     ];
 
     DataUnion? parseUsable(dynamic response, String source) {
       diagnostics.add('source=$source');
       if (response == null) {
+        diagnostics.add('response=null');
         throw StateError('DAL returned null for $endpoint (source=$source)');
       }
       if (response is! Map<String, dynamic>) {
+        diagnostics.add('response_type=${response.runtimeType}');
         throw FormatException('Expected JSON object, got ${response.runtimeType}');
       }
-      final data = JikanV4Result.fromJson(type, response).data;
-      if (type == DataUnionType.people && data is PeopleV4Data &&
-          (data.name?.trim().isNotEmpty ?? false)) return data;
-      if (type == DataUnionType.character && data is CharacterV4Data &&
-          (data.name?.trim().isNotEmpty ?? false)) return data;
       diagnostics.add('response_keys=${response.keys.join(',')}');
-      diagnostics.add('data_type=${data?.runtimeType ?? 'null'}');
-      diagnostics.add('name=${data is PeopleV4Data ? data.name : data is CharacterV4Data ? data.name : 'null'}');
+      diagnostics.add('from_cache=${response['fromCache'] ?? 'unknown'}');
+      if (response['diagnostic'] is Map) {
+        diagnostics.add('server_diagnostic=${(response['diagnostic'] as Map).keys.join(',')}');
+      }
+      final data = JikanV4Result.fromJson(type, response).data;
+      final expectedType =
+          (type == DataUnionType.people && data is PeopleV4Data) ||
+          (type == DataUnionType.character && data is CharacterV4Data);
+      final name = data is PeopleV4Data ? data.name :
+          data is CharacterV4Data ? data.name : null;
+      diagnostics.add('parsed_type=${data?.runtimeType ?? 'null'}');
+      diagnostics.add('has_name=${name?.trim().isNotEmpty ?? false}');
+      if (expectedType && (name?.trim().isNotEmpty ?? false)) {
+        diagnostics.add('result=success');
+        logDal('[Jikan details] ${diagnostics.join('\n')}');
+        return data;
+      }
+      diagnostics.add('result=unusable');
       return null;
     }
 
-    // Invalid cached data is diagnostic-only; always try a fresh response next.
     try {
-      final cached = await httpGet(endpoint, true);
-      final data = parseUsable(cached, 'cache');
+      diagnostics.add('cache_attempt=started');
+      final data = parseUsable(await httpGet(endpoint, true), 'cache');
       if (data != null) return data;
       diagnostics.add('cache_result=unusable');
-    } catch (error, stackTrace) {
-      logDal('[Jikan details] Cached response failed for $endpoint: $error');
-      diagnostics.add('cache_exception=${error.runtimeType}: $error');
-      diagnostics.add('cache_stack=$stackTrace');
+    } catch (error, stack) {
+      diagnostics.add('cache_exception_type=${error.runtimeType}');
+      diagnostics.add('cache_exception=${_safeDetailDiagnostic(error.toString())}');
+      diagnostics.add('cache_stack=$stack');
     }
 
     try {
-      final fresh = await httpGet(endpoint, false);
-      final data = parseUsable(fresh, 'network');
+      diagnostics.add('network_attempt=started');
+      final data = parseUsable(await httpGet(endpoint, false), 'network');
       if (data != null) return data;
       diagnostics.add('network_result=unusable');
       throw StateError('No usable data returned');
-    } catch (error, stackTrace) {
-      diagnostics.add('network_exception=${error.runtimeType}: $error');
-      diagnostics.add('network_stack=$stackTrace');
-      final message = diagnostics.join('\\n');
+    } catch (error, stack) {
+      diagnostics.add('network_exception_type=${error.runtimeType}');
+      diagnostics.add('network_exception=${_safeDetailDiagnostic(error.toString())}');
+      diagnostics.add('network_stack=$stack');
+      final message = diagnostics.join('\n');
       logDal('[Jikan details] $message');
-      Error.throwWithStackTrace(StateError(message), stackTrace);
+      Error.throwWithStackTrace(StateError(message), stack);
     }
   }
+
+  String _safeDetailDiagnostic(String value) => value
+      .replaceAll(
+        RegExp(r'(authorization\s*[:=]\s*bearer\s+)\S+', caseSensitive: false),
+        r'$1[REDACTED]',
+      )
+      .replaceAll(
+        RegExp(r'(access_token|refresh_token|client_secret|api_secret|admin_api_token|mysql_password)(\s*[:=]\s*)[^\s,;&]+', caseSensitive: false),
+        r'$1$2[REDACTED]',
+      )
+      .replaceAll(
+        RegExp(r'([?&](?:access_token|refresh_token|token|key|secret|password)=)[^&\s]+', caseSensitive: false),
+        r'$1[REDACTED]',
+      );
 
   Future<dynamic> getRecomData({
     int? id,

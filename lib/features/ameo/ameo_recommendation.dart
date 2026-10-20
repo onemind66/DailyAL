@@ -552,7 +552,12 @@ class _AmeoClient {
     final nodes = items.map((item) => item.dailyAlNode).whereType<BaseNode>().toList();
     // Ameo recommendations are independent of the MAL list cache. Fetch a full
     // list snapshot once when recommended IDs have no cached status.
-    await MalApi.mergeCachedMyListStatus(nodes, 'anime', fetchIfMissing: true);
+    await MalApi.mergeCachedMyListStatus(
+      nodes,
+      'anime',
+      fetchIfMissing: true,
+      refreshFromNetwork: true,
+    );
   }
 
   List<_AmeoAnime> decode(Map<String, dynamic> body) {

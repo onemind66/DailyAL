@@ -36,14 +36,13 @@ class HttpConnect {
   ) async {
     final response = await retryGet(url, headers);
     if (response.statusCode != 200) {
-      final body = response.body.length > 4000
-          ? '${response.body.substring(0, 4000)}…[truncated]'
-          : response.body;
-      final message = 'GET $url failed: HTTP ${response.statusCode}; '
+      final uri = Uri.parse(url);
+      final message = 'GET ${uri.path} failed: HTTP ${response.statusCode}; '
           'content-type=${response.headers['content-type'] ?? 'unknown'}; '
-          'body=$body';
-      logDal(message);
-      throw HttpException(message, uri: Uri.parse(url));
+          'body_bytes=${response.bodyBytes.length}';
+      // Upstream error bodies are untrusted and may contain sensitive values.
+      logDal('[Jikan HTTP] upstream_error $message');
+      throw HttpException(message, uri: Uri(path: uri.path));
     }
     final decoded = jsonDecode(response.body);
     if (decoded is! Map<String, dynamic>) {

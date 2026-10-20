@@ -167,54 +167,66 @@ class MalApi {
     List<BaseNode>? nodes,
     String category, {
     bool fetchIfMissing = false,
+    bool refreshFromNetwork = false,
   }) async {
     if (user.status != AuthStatus.AUTHENTICATED ||
         !['anime', 'manga'].contains(category) ||
         nodes == null ||
-        nodes.isEmpty) {
+        nodes.isEmpty) return;
+
+    final requestedIds = nodes.map((n) => n.content?.id).whereType<int>().toSet();
+    var cachedStatuses = await _readCachedMyListStatuses(category);
+    logDal('[MAL list status] category=$category requested=${requestedIds.length} '
+        'cached_statuses=${cachedStatuses.length} refresh=$refreshFromNetwork');
+
+    final hasMissing = requestedIds.any((id) => !cachedStatuses.containsKey(id));
+    if (refreshFromNetwork ||
+        (hasMissing && fetchIfMissing && !_myListFetchedCategories.contains(category))) {
+      final watch = Stopwatch()..start();
+      if (!refreshFromNetwork) _myListFetchedCategories.add(category);
+      try {
+        final fresh = await MalUser.getAllUserList('@me', category, fromCache: false);
+        final freshStatuses = <int, dynamic>{};
+        for (final node in fresh.data ?? <BaseNode>[]) {
+          final id = node.content?.id, status = node.myListStatus;
+          if (id != null && status != null && requestedIds.contains(id)) {
+            freshStatuses[id] = status;
+          }
+        }
+        // Only overlay statuses actually returned; empty responses never imply deletion.
+        cachedStatuses.addAll(freshStatuses);
+        logDal('[MAL list status] refresh_complete category=$category '
+            'fetched_items=${fresh.data?.length ?? 0} matched=${freshStatuses.length} '
+            'elapsed_ms=${watch.elapsedMilliseconds}');
+      } catch (error, stack) {
+        if (!refreshFromNetwork) _myListFetchedCategories.remove(category);
+        final safe = error.toString().replaceAll(
+          RegExp(r'(authorization\s*[:=]\s*bearer\s+)\S+', caseSensitive: false),
+          r'$1[REDACTED]');
+        logDal('[MAL list status] refresh_failed category=$category '
+            'exception_type=${error.runtimeType} message=$safe stack=$stack');
+      }
+    }
+
+    if (cachedStatuses.isEmpty) {
+      logDal('[MAL list status] no cached or refreshed statuses category=$category');
       return;
     }
-
-    var cachedStatuses = await _readCachedMyListStatuses(category);
-    final hasMissingRequestedIds = nodes.any((node) {
-      final id = node.content?.id;
-      return id != null && !cachedStatuses.containsKey(id);
-    });
-    if (hasMissingRequestedIds &&
-        fetchIfMissing &&
-        !_myListFetchedCategories.contains(category)) {
-      _myListFetchedCategories.add(category);
-      try {
-        await MalUser.getAllUserList('@me', category, fromCache: false);
-        cachedStatuses = await _readCachedMyListStatuses(category);
-      } catch (e) {
-        _myListFetchedCategories.remove(category);
-        logDal(e);
-      }
-    }
-
-    if (cachedStatuses.isEmpty) return;
-    for (final baseNode in nodes) {
-      final content = baseNode.content;
-      final id = content?.id;
-      if (id == null) continue;
-      if (!cachedStatuses.containsKey(id)) continue;
-
-      // Prefer the latest status snapshot even when the response already
-      // contains an older non-null my_list_status value. A null snapshot
-      // intentionally represents a successful removal from the list.
-      final cachedStatus = cachedStatuses[id];
-      baseNode.myListStatus = cachedStatus;
+    var merged = 0;
+    for (final node in nodes) {
+      final content = node.content, id = content?.id;
+      if (id == null || !cachedStatuses.containsKey(id)) continue;
+      final status = cachedStatuses[id];
+      node.myListStatus = status;
       if (content is AnimeDetailed) {
-        content.myListStatus = cachedStatus is MyAnimeListStatus
-            ? cachedStatus
-            : null;
+        content.myListStatus = status is MyAnimeListStatus ? status : null;
       } else if (content is MangaDetailed) {
-        content.myListStatus = cachedStatus is MyMangaListStatus
-            ? cachedStatus
-            : null;
+        content.myListStatus = status is MyMangaListStatus ? status : null;
       }
+      merged++;
     }
+    logDal('[MAL list status] merge_complete category=$category merged=$merged '
+        'requested=${requestedIds.length}');
   }
 
   /// Get Next/Previous Animelist Page
