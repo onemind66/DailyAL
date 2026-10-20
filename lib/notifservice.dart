@@ -9,6 +9,7 @@ import 'package:dailyanimelist/enums.dart';
 import 'package:dailyanimelist/generated/l10n.dart';
 import 'package:dailyanimelist/main.dart';
 import 'package:dailyanimelist/screens/openscreen.dart';
+import 'package:dailyanimelist/user/user.dart';
 import 'package:dailyanimelist/widgets/user/contentlistwidget.dart';
 import 'package:dailyanimelist/util/linux_desktop_helper.dart';
 import 'package:dal_commons/commons.dart';
