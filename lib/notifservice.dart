@@ -3,7 +3,9 @@ import 'dart:io';
 import 'dart:async';
 
 import 'package:dailyanimelist/api/dalapi.dart';
+import 'package:dailyanimelist/api/maluser.dart';
 import 'package:dailyanimelist/constant.dart';
+import 'package:dailyanimelist/enums.dart';
 import 'package:dailyanimelist/generated/l10n.dart';
 import 'package:dailyanimelist/main.dart';
 import 'package:dailyanimelist/screens/openscreen.dart';
@@ -155,7 +157,7 @@ class NotificationService {
       // Use the user's own list rather than the current seasonal catalogue,
       // so older anime that are still being watched are not silently omitted.
       DalApi.i.resetScheduleForMalIds();
-      final results = await Future.wait([
+      final results = await Future.wait<Object>([
         MalUser.getAllUserList(
           '@me',
           'anime',
