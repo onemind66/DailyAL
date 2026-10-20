@@ -3,9 +3,7 @@ import 'dart:io';
 import 'dart:async';
 
 import 'package:dailyanimelist/api/dalapi.dart';
-import 'package:dailyanimelist/api/malapi.dart';
 import 'package:dailyanimelist/constant.dart';
-import 'package:dailyanimelist/enums.dart';
 import 'package:dailyanimelist/generated/l10n.dart';
 import 'package:dailyanimelist/main.dart';
 import 'package:dailyanimelist/screens/openscreen.dart';
@@ -63,16 +61,6 @@ class NotificationService {
 
   NotificationService._internal();
 
-  final _weekMap = {
-    "monday": 1,
-    "tuesday": 2,
-    "wednesday": 3,
-    "thursday": 4,
-    "friday": 5,
-    "saturday": 6,
-    "sunday": 7,
-  };
-
   Future<void> init() async {
     final AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('ic_stat_name');
@@ -121,17 +109,18 @@ class NotificationService {
     try {
       Node _node = Node.fromJson(jsonDecode(payload ?? '{}'));
 
-      if (_node != null) {
-        logDal("--> payload works");
+      final context = MyApp.navigatorKey.currentContext;
+      if (_node.id != null && context != null) {
+        logDal("--> payload works for MAL id=${_node.id}");
         if (Platform.isLinux) {
           await windowManager.show();
           await windowManager.focus();
         }
         gotoPage(
-            context: MyApp.navigatorKey.currentContext!,
+            context: context,
             newPage: OpenScreen(notifNode: _node));
       } else {
-        logDal("--> null payload $_node");
+        logDal("--> ignoring invalid notification payload");
       }
     } catch (e) {
       logDal("--> payload error $e");
@@ -155,64 +144,74 @@ class NotificationService {
       return;
     }
 
-    const validMyListStatus = ["watching", "plan_to_watch"];
-    SearchResult? seasonResult;
-    Map<int, ScheduleData>? scheduleData;
-    try {
-      final results = await Future.wait([
-        MalApi.getCurrentSeason(
-          fields: [
-            "my_list_status",
-            "broadcast",
-            "status",
-            'alternative_titles'
-          ],
-          sortType: SortType.AnimeScore,
-          fromCache: true,
-          limit: 500,
-        ),
-        DalApi.i.scheduleForMalIds
-      ]);
-      seasonResult = results[0] as SearchResult;
-      scheduleData = results[1] as Map<int, ScheduleData>;
-    } catch (e) {
-      logDal(e);
+    if (user.status != AuthStatus.AUTHENTICATED) {
+      logDal('Skipping notification sync: a signed-in MAL account is required.');
+      return;
     }
 
-    final loadedSeason = seasonResult;
-    final seasonItems = loadedSeason?.data;
-    if (seasonItems == null) {
-      logDal('Skipping notification reconciliation: season response has no data.');
+    Map<int, ScheduleData>? scheduleData;
+    List<BaseNode>? listItems;
+    try {
+      // Use the user's own list rather than the current seasonal catalogue,
+      // so older anime that are still being watched are not silently omitted.
+      DalApi.i.resetScheduleForMalIds();
+      final results = await Future.wait([
+        MalUser.getAllUserList(
+          '@me',
+          'anime',
+          status: 'watching',
+          fromCache: true,
+          fields: 'main_picture,status,num_episodes',
+        ),
+        MalUser.getAllUserList(
+          '@me',
+          'anime',
+          status: 'plan_to_watch',
+          fromCache: true,
+          fields: 'main_picture,status,num_episodes',
+        ),
+        DalApi.i.scheduleForMalIds,
+      ]);
+      final watching = results[0] as SearchResult;
+      final planToWatch = results[1] as SearchResult;
+      scheduleData = results[2] as Map<int, ScheduleData>;
+      listItems = <BaseNode>[
+        ...?watching.data,
+        ...?planToWatch.data,
+      ];
+    } catch (e, stackTrace) {
+      logDal('Skipping notification reconciliation because list/schedule data failed: $e');
+      logDal(stackTrace);
       return;
     }
-    // An empty or paginated response is not authoritative enough to delete
-    // reminders; preserve the last known-good set and retry on the next sync.
-    if (seasonItems.isEmpty || loadedSeason!.paging?.next != null) {
-      logDal(
-        'Skipping notification reconciliation: season data is empty or incomplete '
-        '(items=' + seasonItems.length.toString() +
-        ', hasNext=' + (loadedSeason?.paging?.next != null).toString() + ').',
-      );
+
+    if (listItems == null) {
+      logDal('Skipping notification reconciliation: MAL list response has no data.');
       return;
     }
-    scheduleData ??= {};
-    if (scheduleData.isEmpty) {
+    if (scheduleData == null || scheduleData.isEmpty) {
       // An empty schedule response can be caused by a transient upstream or
       // cache issue; it must not be treated as proof that every reminder is stale.
       logDal('Skipping notification reconciliation: schedule data is empty.');
       return;
     }
 
+    const validMyListStatus = ["watching", "plan_to_watch"];
     final expectedNotificationIds = <int>{};
     var allSchedulesSucceeded = true;
 
-    for (var baseNode in seasonItems) {
+    for (var baseNode in listItems) {
       var node = baseNode.content;
-      if (node == null || node.id == null) continue;
+      if (node == null || node.id == null) {
+        allSchedulesSucceeded = false;
+        continue;
+      }
       node.title = getNodeTitle(node);
       if (node.myListStatus is MyAnimeListStatus) {
         var myListStatus = node?.myListStatus as MyAnimeListStatus;
-        if (myListStatus?.status == null) {
+        if (myListStatus.status == null) {
+          expectedNotificationIds.add(2100 + node.id!);
+          allSchedulesSucceeded = false;
           continue;
         }
         if (!validMyListStatus.contains(myListStatus.status)) {
@@ -243,7 +242,9 @@ class NotificationService {
           final liveSchedule = scheduleData[node.id]!;
           final timestamp = liveSchedule.timestamp;
           if (timestamp == null) {
-            logDal("Missing schedule timestamp for ${node.title}");
+            expectedNotificationIds.add(2100 + node.id!);
+            allSchedulesSucceeded = false;
+            logDal("Missing schedule timestamp for ${node.title}; preserving existing reminder.");
             continue;
           }
 
@@ -265,12 +266,18 @@ class NotificationService {
             expectedNotificationIds.add(2100 + node.id!);
           } else {
             allSchedulesSucceeded = false;
+            expectedNotificationIds.add(2100 + node.id!);
             logDal('Failed to schedule reminder for MAL id=' + node.id.toString() +
                 '; preserving existing reminders.');
           }
         } else {
-          logDal("No schedule data for ${node.title}");
+          expectedNotificationIds.add(2100 + node.id!);
+          allSchedulesSucceeded = false;
+          logDal("No schedule data for ${node.title}; preserving existing reminder.");
         }
+      } else {
+        expectedNotificationIds.add(2100 + node.id!);
+        allSchedulesSucceeded = false;
       }
     }
 
@@ -476,7 +483,6 @@ class NotificationService {
           ),
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
           payload: jsonEncode(notificationNode.toJson()),
-          matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
         );
       }
     } catch (e, stackTrace) {
@@ -536,7 +542,12 @@ class NotificationService {
     try {
       final Directory directory = await getApplicationDocumentsDirectory();
       final String filePath = '${directory.path}/$fileName';
-      final http.Response response = await http.get(Uri.parse(url));
+      final http.Response response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 5));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return null;
+      }
       final File file = File(filePath);
       await file.writeAsBytes(response.bodyBytes);
       return filePath;
@@ -548,25 +559,27 @@ class NotificationService {
 
   Future<void> askForPermission() async {
     if (Platform.isLinux) return;
-    if (user.pref.notifPref.onPTWGoesToWatching ||
-        user.pref.notifPref.onWatchingListUpdated) {
-      final notifPerm = await Permission.notification.status;
-      final alamPerm = await Permission.scheduleExactAlarm.status;
-      if (notifPerm == PermissionStatus.denied ||
-          alamPerm == PermissionStatus.denied) {
-        bool allowed = await showConfirmationDialog(
-          alertTitle: S.current.ConfirmNotifPerm,
-          desc: S.current.ConfirmNotifPermDesc,
-          context: MyApp.navigatorKey.currentContext!,
-        );
-        if (allowed) {
-          allowed = await _askNotifPermissionUsingLocal();
-        } else {
-          user.pref.notifPref.onPTWGoesToWatching = false;
-          user.pref.notifPref.onWatchingListUpdated = false;
-          user.setIntance();
-        }
-      }
+    if (!user.pref.notifPref.onPTWGoesToWatching &&
+        !user.pref.notifPref.onWatchingListUpdated) {
+      return;
+    }
+
+    final notifPerm = await Permission.notification.status;
+    final alarmPerm = await Permission.scheduleExactAlarm.status;
+    if (notifPerm.isGranted && alarmPerm.isGranted) return;
+
+    final allowed = await showConfirmationDialog(
+      alertTitle: S.current.ConfirmNotifPerm,
+      desc: S.current.ConfirmNotifPermDesc,
+      context: MyApp.navigatorKey.currentContext!,
+    );
+    final permissionsGranted =
+        allowed && await _askNotifPermissionUsingLocal();
+
+    if (!permissionsGranted) {
+      user.pref.notifPref.onPTWGoesToWatching = false;
+      user.pref.notifPref.onWatchingListUpdated = false;
+      await user.setIntance();
     }
   }
 

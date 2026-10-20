@@ -44,9 +44,11 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
             text: S.current.Anime_on_Watching_List_gets_aired,
             trailing: ToggleButton(
               toggleValue: user.pref.notifPref.onWatchingListUpdated,
-              onToggled: (value) {
+              onToggled: (value) async {
                 user.pref.notifPref.onWatchingListUpdated = value;
-                user.setIntance();
+                await user.setIntance();
+                if (value) await NotificationService().askForPermission();
+                await NotificationService().scheduledNotifcation();
                 if (mounted) setState(() {});
               },
             ),
@@ -55,9 +57,11 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
             text: S.current.Anime_on_PTW_List_gets_aired,
             trailing: ToggleButton(
               toggleValue: user.pref.notifPref.onPTWGoesToWatching,
-              onToggled: (value) {
+              onToggled: (value) async {
                 user.pref.notifPref.onPTWGoesToWatching = value;
-                user.setIntance();
+                await user.setIntance();
+                if (value) await NotificationService().askForPermission();
+                await NotificationService().scheduledNotifcation();
                 if (mounted) setState(() {});
               },
             ),
@@ -83,6 +87,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
               user.pref.notifPref.onWatchingListUpdated = true;
               await user.setIntance();
               await NotificationService().askForPermission();
+              await NotificationService().scheduledNotifcation();
               if (mounted) setState(() {});
             },
           ),
@@ -94,9 +99,10 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
               // final node = nodes.where((e) => e.id == 53127).elementAt(0);
               node.title = getNodeTitle(node);
               String title = 'Ep: 10 of <b>${node.title}</b> is out!';
-              NotificationService().showNotification(
+              await NotificationService().showNotification(
                 title: title,
-                serviceId: 21,
+                // Keep the test reminder ID separate from real anime reminders.
+                serviceId: 99,
                 node: node,
                 exactDate: DateTime.now().add(const Duration(seconds: 2)),
                 body: S.current.Notif_Update_watchList,

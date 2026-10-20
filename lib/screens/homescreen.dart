@@ -67,7 +67,8 @@ class HomeScreen extends StatefulWidget {
   _HomeScreenState createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   int pageIndex = 0;
   late AnimationController _animationController;
   late Animation animation;
@@ -79,6 +80,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     pageIndex = 0;
 
     _animationController = AnimationController(
@@ -226,16 +228,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      setupScheduledNotifications();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _animationController.dispose();
     _traySubscription?.cancel();
     super.dispose();
   }
 
-  setupScheduledNotifications() async {
+  Future<void> setupScheduledNotifications() async {
     if (user.status == AuthStatus.AUTHENTICATED) {
       await NotificationService().askForPermission();
-      NotificationService().scheduledNotifcation();
+      await NotificationService().scheduledNotifcation();
     }
   }
 
