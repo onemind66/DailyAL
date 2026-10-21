@@ -156,24 +156,104 @@ class _CharacterScreenState extends State<CharacterScreen> {
     });
   }
 
+  String _classifyDetailsError(Object error) {
+    final message = error.toString().toLowerCase();
+    final type = error.runtimeType.toString().toLowerCase();
+
+    if (error is _InvalidDetailsResponseException) {
+      return 'Unexpected or Empty Response';
+    }
+    if (type.contains('timeout') || message.contains('timed out') ||
+        message.contains('timeout')) {
+      return 'Request Timed Out';
+    }
+    if (type.contains('socket') || type.contains('clientexception') ||
+        type.contains('handshake') || message.contains('connection reset') ||
+        message.contains('failed host lookup') ||
+        message.contains('network is unreachable') ||
+        message.contains('connection refused')) {
+      return 'Network Connection Error';
+    }
+    if (message.contains('429') || message.contains('rate limit') ||
+        message.contains('too many requests')) {
+      return 'Rate Limit Reached';
+    }
+    if (message.contains('401') || message.contains('403') ||
+        message.contains('unauthorized') || message.contains('forbidden')) {
+      return 'Access Denied';
+    }
+    if (message.contains('500') || message.contains('502') ||
+        message.contains('503') || message.contains('504') ||
+        message.contains('server error') ||
+        message.contains('service unavailable')) {
+      return 'Remote Service Error';
+    }
+    if (type.contains('formatexception') || message.contains('invalid json') ||
+        message.contains('unexpected character')) {
+      return 'Invalid API Response';
+    }
+    if (type.contains('stateerror') && message.contains('returned null')) {
+      return 'No Data Returned';
+    }
+    return 'Unexpected Error';
+  }
+
+  String _detailsErrorDescription(String category) {
+    switch (category) {
+      case 'Network Connection Error':
+        return 'DailyAL could not establish a reliable connection to the data service. '
+            'The connection may have been reset, DNS may have failed, or your network may be offline.';
+      case 'Request Timed Out':
+        return 'The data service did not respond before the request timed out. '
+            'This can happen during a temporary outage or when the network is slow.';
+      case 'Rate Limit Reached':
+        return 'The data service is temporarily limiting requests. Wait a moment before trying again.';
+      case 'Access Denied':
+        return 'The data service rejected the request. The entry may be unavailable through this endpoint, '
+            'or the service may be restricting access.';
+      case 'Remote Service Error':
+        return 'The remote data service reported a server-side error. This is usually temporary.';
+      case 'Invalid API Response':
+        return 'The response could not be parsed as valid data. The service may have returned an error page '
+            'or an unexpected response format.';
+      case 'Unexpected or Empty Response':
+        return 'The request completed, but DailyAL did not receive a usable character or person record for this ID.';
+      case 'No Data Returned':
+        return 'The data layer returned no record for this ID. This can indicate an upstream response issue '
+            'or a missing result; it does not by itself prove the entry was deleted.';
+      default:
+        return 'DailyAL could not load this entry because an unexpected error occurred. '
+            'Use the technical diagnostics below when reporting the problem.';
+    }
+  }
+
   void _handleDetailsLoadError(Object error, StackTrace stackTrace) {
+    final category = _classifyDetailsError(error);
+    final itemType = chara.equals('character') ? 'character' : 'person';
     debugPrint(
-        '[CharacterScreen] Failed to load ${chara} details (malId=$id, errorType=${error.runtimeType}): $error');
+        '[CharacterScreen] Failed to load $itemType details (malId=$id, category=$category, errorType=${error.runtimeType}): $error');
     debugPrintStack(stackTrace: stackTrace);
     if (!mounted) return;
-    final reason = error is _InvalidDetailsResponseException
-        ? 'The service returned no usable data for this ID.'
-        : '${error.runtimeType}: $error';
+
+    final timestamp = DateTime.now().toIso8601String();
+    final reason = '$category: ${_detailsErrorDescription(category)}';
     final diagnostics = [
-      'DailyAL Character/Person details diagnostic',
-      'category=${chara.equals('character') ? 'character' : 'people'}',
+      'DailyAL Details Error Report',
+      '============================',
+      'app_area=CharacterScreen',
+      'category=$itemType',
       'mal_id=$id',
-      'timestamp=${DateTime.now().toIso8601String()}',
-      'reason=$reason',
+      'data_source=DailyAL data API (upstream provider may vary)',
+      'timestamp_local=$timestamp',
+      'classification=$category',
       'exception_type=${error.runtimeType}',
-      'exception=$error',
-      'stack_trace=$stackTrace',
+      'exception_message=$error',
+      '',
+      'STACK TRACE',
+      '-----------',
+      stackTrace.toString(),
     ].join('\\n');
+
     setState(() {
       _isDetailsLoading = false;
       _detailsError = reason;
@@ -263,96 +343,179 @@ class _CharacterScreenState extends State<CharacterScreen> {
 
   Widget _buildDetailsError() {
     final isCharacter = chara.equals('character');
-    final categoryLabel = isCharacter ? 'Character' : 'Person / voice actor';
+    final categoryLabel = isCharacter ? 'Character' : 'Person / Voice Actor';
+    final errorText = _detailsError ?? 'An unknown error occurred.';
+    final scheme = Theme.of(context).colorScheme;
+
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(20),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
+          constraints: const BoxConstraints(maxWidth: 560),
           child: Card(
+            clipBehavior: Clip.antiAlias,
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(Icons.cloud_off_outlined, size: 44),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Could not load $categoryLabel details',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'MAL ID: $id\n'
-                    'Reason: ${_detailsError ?? 'Unknown error'}\n\n'
-                    'The request may have timed out, the service may be temporarily unavailable, '
-                    'or the response may be incomplete or invalid. This does not necessarily mean '
-                    'the entry was deleted.',
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'You can try:',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+                  Center(
+                    child: Container(
+                      width: 68,
+                      height: 68,
+                      decoration: BoxDecoration(
+                        color: scheme.errorContainer,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.cloud_off_outlined,
+                        size: 34,
+                        color: scheme.onErrorContainer,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '• Check your internet connection.\n'
-                      '• Retry in a little while if the API is temporarily unavailable.\n'
-                      '• If this continues, verify the MAL ID and report the ID with this message.',
-                    ),
-                  ),
-                  if (_detailsDiagnosticLog != null) ...[
-                    const SizedBox(height: 16),
-                    ExpansionTile(
-                      tilePadding: EdgeInsets.zero,
-                      title: const Text('Technical diagnostics'),
-                      subtitle: const Text('Full error and stack trace'),
-                      children: [
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton.icon(
-                            onPressed: () async {
-                              await Clipboard.setData(ClipboardData(
-                                  text: _detailsDiagnosticLog ?? ''));
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Full diagnostic log copied'),
-                                  ),
-                                );
-                              }
-                            },
-                            icon: const Icon(Icons.copy),
-                            label: const Text('Copy full log'),
-                          ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'Unable to Load $categoryLabel',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
                         ),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: SelectableText(
-                            _detailsDiagnosticLog!,
-                            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                          ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'DailyAL couldn’t retrieve the details for this entry.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 18),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.badge_outlined,
+                                size: 18, color: scheme.onSurfaceVariant),
+                            const SizedBox(width: 8),
+                            Text(
+                              '$categoryLabel  •  MAL ID: $id',
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          errorText.split(':').first,
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                color: scheme.error,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          errorText.contains(': ')
+                              ? errorText.substring(errorText.indexOf(': ') + 2)
+                              : errorText,
+                          style: Theme.of(context).textTheme.bodyMedium,
                         ),
                       ],
                     ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'What you can do',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 10),
+                  const _DetailsRecoveryTip(
+                    icon: Icons.wifi,
+                    text: 'Check your internet connection and try again.',
+                  ),
+                  const SizedBox(height: 8),
+                  const _DetailsRecoveryTip(
+                    icon: Icons.schedule,
+                    text: 'If the service is temporarily unavailable or rate-limited, wait a little and retry.',
+                  ),
+                  const SizedBox(height: 8),
+                  const _DetailsRecoveryTip(
+                    icon: Icons.support_agent_outlined,
+                    text: 'If this keeps happening, copy the technical report below and include the MAL ID when reporting it.',
+                  ),
+                  if (_detailsDiagnosticLog != null) ...[
+                    const SizedBox(height: 18),
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: scheme.outlineVariant),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ExpansionTile(
+                        key: const PageStorageKey<String>('character-details-diagnostics'),
+                        tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+                        childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                        leading: const Icon(Icons.terminal),
+                        title: const Text('Technical diagnostics'),
+                        subtitle: const Text('Exception details and full stack trace'),
+                        children: [
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: () async {
+                                await Clipboard.setData(ClipboardData(
+                                    text: _detailsDiagnosticLog ?? ''));
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Diagnostic report copied to clipboard'),
+                                    ),
+                                  );
+                                }
+                              },
+                              icon: const Icon(Icons.copy_outlined),
+                              label: const Text('Copy report'),
+                            ),
+                          ),
+                          Container(
+                            width: double.infinity,
+                            constraints: const BoxConstraints(maxHeight: 280),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: scheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: SingleChildScrollView(
+                              child: SelectableText(
+                                _detailsDiagnosticLog!,
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      fontFamily: 'monospace',
+                                      height: 1.45,
+                                    ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 22),
                   FilledButton.icon(
                     onPressed: _isDetailsLoading ? null : _retryDetailsLoad,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Retry loading'),
+                    icon: _isDetailsLoading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh),
+                    label: Text(_isDetailsLoading ? 'Retrying…' : 'Try again'),
                   ),
                 ],
               ),
@@ -832,6 +995,30 @@ class _CharacterScreenState extends State<CharacterScreen> {
     setState(() {
       _sortedVoices = voices;
     });
+  }
+}
+
+class _DetailsRecoveryTip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _DetailsRecoveryTip({
+    required this.icon,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
+        ),
+      ],
+    );
   }
 }
 
