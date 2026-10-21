@@ -252,7 +252,7 @@ class _CharacterScreenState extends State<CharacterScreen> {
       'STACK TRACE',
       '-----------',
       stackTrace.toString(),
-    ].join('\\n');
+    ].join('\n');
 
     setState(() {
       _isDetailsLoading = false;
