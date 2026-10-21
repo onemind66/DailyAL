@@ -343,6 +343,7 @@ class MalUser {
     String? sortType,
     bool fromCache = true,
     String? fields,
+    bool requireComplete = false,
   }) async {
     // Treat a missing self-profile username as MAL's authenticated alias.
     // An empty username constructs /users//animelist and returns no entries.
@@ -361,6 +362,7 @@ class MalUser {
       sortType: sortType,
       fromCache: fromCache,
       fields: fields,
+      requireComplete: requireComplete,
     );
     // A cached/failed first attempt can silently yield an empty list, which
     // makes every profile graph show "No Enough Data". Retry once from network.
@@ -372,6 +374,7 @@ class MalUser {
         sortType: sortType,
         fromCache: false,
         fields: fields,
+        requireComplete: requireComplete,
       );
     }
     return result;
@@ -384,6 +387,7 @@ class MalUser {
     String? sortType,
     required bool fromCache,
     String? fields,
+    bool requireComplete = false,
   }) async {
     final limit = 1000;
     // anime-only fields (broadcast/source/studios) are not valid for manga,
@@ -400,10 +404,14 @@ class MalUser {
       url += "&sort=$sortType";
     }
     List<BaseNode> allNodes = [];
-    final firstResult = SearchResult.fromJson(
-        await MalConnect.getContent(url,
-            retryOnFail: false, fromCache: fromCache),
-        category: category);
+    final firstJson = await MalConnect.getContent(url,
+        retryOnFail: false, fromCache: fromCache);
+    if (requireComplete &&
+        (firstJson is! Map<String, dynamic> || firstJson['data'] is! List)) {
+      throw StateError(
+          'MAL returned an incomplete $category list response (first page).');
+    }
+    final firstResult = SearchResult.fromJson(firstJson, category: category);
     if (!nullOrEmpty(firstResult.data)) {
       allNodes.addAll(firstResult.data?.toList() ?? []);
     }
@@ -415,10 +423,14 @@ class MalUser {
     while (nextUrl != null &&
         nextUrl.isNotBlank &&
         visitedUrls.add(nextUrl)) {
-      final nextResult = SearchResult.fromJson(
-          await MalConnect.getContent(nextUrl,
-              retryOnFail: false, fromCache: fromCache),
-          category: category);
+      final nextJson = await MalConnect.getContent(nextUrl,
+          retryOnFail: false, fromCache: fromCache);
+      if (requireComplete &&
+          (nextJson is! Map<String, dynamic> || nextJson['data'] is! List)) {
+        throw StateError(
+            'MAL returned an incomplete $category list response (next page).');
+      }
+      final nextResult = SearchResult.fromJson(nextJson, category: category);
       final list = nextResult.data?.toList() ?? [];
       allNodes.addAll(list);
       nextUrl = nextResult.paging?.next;

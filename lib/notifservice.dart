@@ -165,6 +165,7 @@ class NotificationService {
           status: 'watching',
           fromCache: true,
           fields: 'main_picture,status,num_episodes',
+          requireComplete: true,
         ),
         MalUser.getAllUserList(
           '@me',
@@ -172,6 +173,7 @@ class NotificationService {
           status: 'plan_to_watch',
           fromCache: true,
           fields: 'main_picture,status,num_episodes',
+          requireComplete: true,
         ),
         DalApi.i.scheduleForMalIds,
       ]);
@@ -192,9 +194,10 @@ class NotificationService {
       logDal('Skipping notification reconciliation: MAL list response has no data.');
       return;
     }
-    if (scheduleData == null || scheduleData.isEmpty) {
-      // An empty schedule response can be caused by a transient upstream or
-      // cache issue; it must not be treated as proof that every reminder is stale.
+    if (scheduleData == null ||
+        (scheduleData.isEmpty && listItems.isNotEmpty)) {
+      // A missing schedule response is not proof that reminders are stale.
+      // A genuinely empty, successfully fetched MAL list can still be reconciled.
       logDal('Skipping notification reconciliation: schedule data is empty.');
       return;
     }
@@ -367,13 +370,14 @@ class NotificationService {
       node: node,
       exactDate: nextDate,
       channel: channel,
+      downloadImage: false,
     );
   }
 
   static final iconPath =
       'https://play-lh.googleusercontent.com/ZR5oY99qg9mdL9EGDlP3uKDeu0icE3wCGFor3IaAL0xVXXXYQciXavnUVvXFzcQx59w=w240-h480-rw';
 
-  Future<void> showNotification({
+  Future<bool> showNotification({
     int episode = 1,
     int serviceId = 21,
     Node? node,
@@ -383,7 +387,7 @@ class NotificationService {
     Duration addTime = const Duration(milliseconds: 300),
     required NotificationChannel channel,
   }) async {
-    await _showNotificationAndReport(
+    return _showNotificationAndReport(
       episode: episode,
       serviceId: serviceId,
       node: node,
@@ -404,6 +408,7 @@ class NotificationService {
     DateTime? exactDate,
     Duration addTime = const Duration(milliseconds: 300),
     required NotificationChannel channel,
+    bool downloadImage = true,
   }) async {
     final notificationNode = node;
     final nodeId = notificationNode?.id;
@@ -425,7 +430,8 @@ class NotificationService {
 
     String? imagePath;
     FilePathAndroidBitmap? largeIconBitmap;
-    if (notificationNode.mainPicture?.large != null &&
+    if (downloadImage &&
+        notificationNode.mainPicture?.large != null &&
         notificationNode.title != null) {
       imagePath = await _downloadAndSaveFile(
           notificationNode.mainPicture!.large!,
@@ -590,9 +596,13 @@ class NotificationService {
     if (Platform.isLinux) return true;
     FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
         FlutterLocalNotificationsPlugin();
-    return ((await _getAlarmPerm(flutterLocalNotificationsPlugin)) ?? false) &&
-        ((await _getNotificationPerm(flutterLocalNotificationsPlugin)) ??
-            false);
+    // Request both permissions independently: denying exact alarms should not
+    // prevent Android from presenting the notification-permission prompt.
+    final alarmGranted =
+        (await _getAlarmPerm(flutterLocalNotificationsPlugin)) ?? false;
+    final notificationsGranted =
+        (await _getNotificationPerm(flutterLocalNotificationsPlugin)) ?? false;
+    return alarmGranted && notificationsGranted;
   }
 
   Future<bool?> _getAlarmPerm(

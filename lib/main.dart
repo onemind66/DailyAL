@@ -55,12 +55,12 @@ final int settingsIndex = 8;
 GlobalKey<ScaffoldMessengerState> messenger = GlobalKey();
 
 void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   try {
     // Universal Log Config for DailyAL
     dalLogConfig.debugMode = kDebugMode;
     await dotenv.load(fileName: 'assets/n8TN5qDG22PAuP50Il');
     Environment.i.malClientId = CredMal.clientId;
-    WidgetsFlutterBinding.ensureInitialized();
     if (!kIsWeb) HttpOverrides.global = _SystemProxyHttpOverrides();
     ErrorReporting.init();
     await StreamUtils.i.init();
@@ -72,7 +72,10 @@ void main() async {
       androidSDKVersion = androidInfo.version.sdkInt;
     }
     await FlutterDisplayMode.setHighRefreshRate();
-  } catch (e) {}
+  } catch (e, stackTrace) {
+    logDal('Startup initialization failed: $e');
+    logDal(stackTrace);
+  }
 
   Node? node;
   if (!kIsWeb && (Platform.isAndroid || Platform.isLinux)) {

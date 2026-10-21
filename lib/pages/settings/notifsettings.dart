@@ -99,7 +99,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
               // final node = nodes.where((e) => e.id == 53127).elementAt(0);
               node.title = getNodeTitle(node);
               String title = 'Ep: 10 of <b>${node.title}</b> is out!';
-              await NotificationService().showNotification(
+              final scheduled = await NotificationService().showNotification(
                 title: title,
                 // Keep the test reminder ID separate from real anime reminders.
                 serviceId: 99,
@@ -108,7 +108,9 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                 body: S.current.Notif_Update_watchList,
                 channel: NotificationChannel.watching(),
               );
-              showToast(S.current.NotifScheduled);
+              showToast(scheduled
+                  ? S.current.NotifScheduled
+                  : 'Could not schedule the test notification. Check notification permissions.');
             },
           ),
           Padding(
