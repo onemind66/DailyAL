@@ -370,7 +370,7 @@ class NotificationService {
       node: node,
       exactDate: nextDate,
       channel: channel,
-      downloadImage: false,
+      downloadImage: true,
     );
   }
 
@@ -434,8 +434,9 @@ class NotificationService {
         notificationNode.mainPicture?.large != null &&
         notificationNode.title != null) {
       imagePath = await _downloadAndSaveFile(
-          notificationNode.mainPicture!.large!,
-          notificationNode.title!.getFormattedTitleForHtml(true)!);
+        notificationNode.mainPicture!.large!,
+        nodeId,
+      );
     }
 
     StyleInformation? styleInfo;
@@ -514,8 +515,10 @@ class NotificationService {
     if (LinuxDesktopHelper.hasLibNotify) {
       try {
         final iconPath = LinuxDesktopHelper.appIconPath;
-        final LinuxNotificationIcon? linuxIcon =
-            iconPath != null ? FilePathLinuxIcon(iconPath) : null;
+        final hasAnimeImage = imagePath != null && File(imagePath).existsSync();
+        final LinuxNotificationIcon? linuxIcon = hasAnimeImage
+            ? FilePathLinuxIcon(imagePath)
+            : (iconPath != null ? FilePathLinuxIcon(iconPath) : null);
 
         await flutterLocalNotificationsPlugin.show(
           id: serviceId * 100 + node.id!,
@@ -547,21 +550,63 @@ class NotificationService {
         .replaceAll('</i>', '');
   }
 
-  Future<String?> _downloadAndSaveFile(String url, String fileName) async {
+  Future<String?> _downloadAndSaveFile(String url, int malId) async {
     try {
-      final Directory directory = await getApplicationDocumentsDirectory();
-      final String filePath = '${directory.path}/$fileName';
-      final http.Response response = await http
-          .get(Uri.parse(url))
-          .timeout(const Duration(seconds: 5));
-      if (response.statusCode < 200 || response.statusCode >= 300) {
+      final imageUri = Uri.tryParse(url);
+      if (imageUri == null ||
+          (imageUri.scheme != 'https' && imageUri.scheme != 'http') ||
+          imageUri.host.isEmpty) {
+        logDal('Skipping notification image for MAL id=$malId: invalid image URL.');
         return null;
       }
-      final File file = File(filePath);
-      await file.writeAsBytes(response.bodyBytes);
-      return filePath;
-    } catch (e) {
-      logDal(e);
+
+      final Directory appDirectory = await getApplicationDocumentsDirectory();
+      final Directory imageDirectory =
+          Directory('${appDirectory.path}/notification_images');
+      await imageDirectory.create(recursive: true);
+
+      // Cache the image before making a network request. A fixed extension is
+      // intentional: Android/Linux image decoders inspect the file contents.
+      final File imageFile = File('${imageDirectory.path}/$malId.img');
+      if (await imageFile.exists()) {
+        final cachedLength = await imageFile.length();
+        if (cachedLength > 0 && cachedLength <= 8 * 1024 * 1024) {
+          return imageFile.path;
+        }
+        await imageFile.delete();
+      }
+
+      final http.Response response = await http
+          .get(imageUri)
+          .timeout(const Duration(seconds: 5));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        logDal(
+            'Notification image download failed for MAL id=$malId: HTTP ${response.statusCode}.');
+        return null;
+      }
+      if (response.bodyBytes.isEmpty ||
+          response.bodyBytes.length > 8 * 1024 * 1024) {
+        logDal(
+            'Skipping notification image for MAL id=$malId: empty image or image exceeds 8 MiB.');
+        return null;
+      }
+
+      final contentType =
+          response.headers['content-type']?.split(';').first.trim().toLowerCase();
+      if (contentType != null &&
+          !contentType.startsWith('image/') &&
+          contentType != 'application/octet-stream') {
+        logDal(
+            'Skipping notification image for MAL id=$malId: unexpected content type $contentType.');
+        return null;
+      }
+
+      await imageFile.writeAsBytes(response.bodyBytes, flush: true);
+      logDal('Downloaded notification image for MAL id=$malId (${response.bodyBytes.length} bytes).');
+      return imageFile.path;
+    } catch (e, stackTrace) {
+      logDal('Notification image download failed for MAL id=$malId: $e');
+      logDal(stackTrace);
       return null;
     }
   }
